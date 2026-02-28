@@ -1,7 +1,11 @@
 README.md
 pyproject.toml
 app/main.py
+app/core/__init__.py
 app/core/config.py
+app/core/paths.py
+app/core/schema_loader.py
+app/core/untrusted.py
 app/docx_engine/editor.py
 app/docx_engine/loader.py
 app/docx_engine/metrics.py

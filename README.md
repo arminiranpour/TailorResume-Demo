@@ -8,6 +8,16 @@ A deterministic, multi-step AI pipeline that matches resumes to jobs and tailors
 - **ai-service/** (FastAPI) runs the deterministic pipeline and provider abstraction.
 This keeps UI concerns isolated from model and document handling, and allows swapping model providers without rewriting the pipeline.
 
+## API Boundary Strategy
+The frontend calls the FastAPI service directly. No Next.js proxy routes are used in Phase 0.
+
+## API Endpoints (Phase 0 Stubs)
+- `GET /health`
+- `POST /parse-resume`
+- `POST /parse-job`
+- `POST /repair-json`
+- `POST /tailor`
+
 ## Injection Safety Stance
 All job pages are untrusted input. Extraction, parsing, and prompt construction must guard against prompt injection. Only validated, schema-conformant content may enter the pipeline.
 
@@ -30,6 +40,10 @@ Output must preserve fonts, font sizes, margins, layout, bullet counts, section 
 The pipeline uses a provider interface so the same prompts and schemas work with:
 - **LocalProvider** (Ollama for demo)
 - **ApiProvider** (OpenAI/Anthropic/etc. after demo)
+
+## Schema Loading
+Canonical JSON Schemas live in `shared/schemas/`. The AI service includes a helper
+to resolve and load these schemas regardless of working directory.
 
 ## Local Dev Quickstart (Placeholders)
 - Frontend (Next.js):
