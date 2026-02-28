@@ -1,0 +1,14 @@
+[project]
+name = "tailorresume-ai-service"
+version = "0.1.0"
+description = "FastAPI service for deterministic resume-to-job pipeline (scaffolding only)."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.110.0",
+  "uvicorn[standard]>=0.29.0"
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
