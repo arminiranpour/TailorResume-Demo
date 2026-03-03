@@ -1,13 +1,15 @@
-from .config import settings
-from .paths import repo_root_path, shared_schema_path
-from .schema_loader import load_shared_schema
-from .untrusted import build_llm_messages, sanitize_untrusted_text
+from .config import AppConfig, get_config
+from .paths import repo_root_path, shared_schema_dir, shared_schema_path
+from .schema_loader import load_schema, load_shared_schema
+from .untrusted import build_llm_messages
 
 __all__ = [
-    "settings",
+    "AppConfig",
+    "get_config",
     "repo_root_path",
+    "shared_schema_dir",
     "shared_schema_path",
+    "load_schema",
     "load_shared_schema",
-    "sanitize_untrusted_text",
     "build_llm_messages",
 ]

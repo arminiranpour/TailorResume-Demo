@@ -1,16 +1,10 @@
-import json
 from typing import Any, Dict
 
-from .paths import shared_schema_path
+from app.schemas.schema_loader import load_schema
 
 
 def load_shared_schema(filename: str) -> Dict[str, Any]:
-    """
-    Load a JSON schema from the canonical shared/schemas directory.
-    Phase-0: load only, no validation.
-    """
-    path = shared_schema_path(filename)
-    if not path.exists():
-        raise FileNotFoundError(f"Shared schema not found: {path}")
-    with path.open("r", encoding="utf-8") as handle:
-        return json.load(handle)
+    return load_schema(filename)
+
+
+__all__ = ["load_schema", "load_shared_schema"]

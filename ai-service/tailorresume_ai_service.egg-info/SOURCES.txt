@@ -1,5 +1,6 @@
 README.md
 pyproject.toml
+app/config.py
 app/main.py
 app/core/__init__.py
 app/core/config.py
@@ -17,7 +18,12 @@ app/pipelines/scoring.py
 app/pipelines/tailoring.py
 app/providers/api_provider.py
 app/providers/base.py
+app/providers/factory.py
 app/providers/local_provider.py
+app/schemas/paths.py
+app/schemas/schema_loader.py
+app/schemas/validator.py
+app/security/untrusted.py
 tailorresume_ai_service.egg-info/PKG-INFO
 tailorresume_ai_service.egg-info/SOURCES.txt
 tailorresume_ai_service.egg-info/dependency_links.txt

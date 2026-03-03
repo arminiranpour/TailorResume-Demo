@@ -1,8 +1,15 @@
-from fastapi import FastAPI
+import time
+from typing import Any, Callable, Dict, Optional
+
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import Any, Dict, Optional
+
+from app.config import get_config
+from app.providers.base import LLMProvider
+from app.providers.factory import get_provider
+from app.schemas.schema_loader import load_schema
 
 app = FastAPI(title="TailorResume AI Service", version="0.1.0")
 
@@ -18,6 +25,47 @@ app.add_middleware(
 @app.get("/health")
 def health_check() -> dict:
     return {"ok": True}
+
+
+def get_llm_provider() -> LLMProvider:
+    return get_provider()
+
+
+def get_schema_loader() -> Callable[[str], Dict[str, Any]]:
+    return load_schema
+
+
+@app.get("/health/llm")
+def health_llm() -> dict:
+    config = get_config()
+    provider = get_provider()
+    start = time.perf_counter()
+    error = None
+    ok = False
+    try:
+        content = provider.generate(
+            [
+                {
+                    "role": "system",
+                    "content": "You are a health check. Reply with exactly {\"ok\":true}.",
+                },
+                {"role": "user", "content": "Return exactly {\"ok\":true}."},
+            ],
+            timeout_seconds=config.llm_timeout_seconds,
+        )
+        if not isinstance(content, str) or content.strip() == "":
+            raise RuntimeError("Empty response from provider")
+        ok = True
+    except Exception as exc:
+        error = str(exc)
+    latency_ms = int((time.perf_counter() - start) * 1000)
+    return {
+        "ok": ok,
+        "provider": config.llm_provider,
+        "model": config.ollama_model,
+        "latency_ms": latency_ms,
+        "error": error,
+    }
 
 
 class ParseResumeRequest(BaseModel):
@@ -51,20 +99,40 @@ def _not_implemented(detail: str) -> JSONResponse:
 
 
 @app.post("/parse-resume")
-def parse_resume(_: ParseResumeRequest) -> JSONResponse:
+def parse_resume(
+    _: ParseResumeRequest,
+    provider: LLMProvider = Depends(get_llm_provider),
+    schema_loader: Callable[[str], Dict[str, Any]] = Depends(get_schema_loader),
+) -> JSONResponse:
+    _ = provider, schema_loader
     return _not_implemented("parse-resume endpoint is a Phase 0 stub")
 
 
 @app.post("/parse-job")
-def parse_job(_: ParseJobRequest) -> JSONResponse:
+def parse_job(
+    _: ParseJobRequest,
+    provider: LLMProvider = Depends(get_llm_provider),
+    schema_loader: Callable[[str], Dict[str, Any]] = Depends(get_schema_loader),
+) -> JSONResponse:
+    _ = provider, schema_loader
     return _not_implemented("parse-job endpoint is a Phase 0 stub")
 
 
 @app.post("/repair-json")
-def repair_json(_: RepairJsonRequest) -> JSONResponse:
+def repair_json(
+    _: RepairJsonRequest,
+    provider: LLMProvider = Depends(get_llm_provider),
+    schema_loader: Callable[[str], Dict[str, Any]] = Depends(get_schema_loader),
+) -> JSONResponse:
+    _ = provider, schema_loader
     return _not_implemented("repair-json endpoint is a Phase 0 stub")
 
 
 @app.post("/tailor")
-def tailor(_: TailorRequest) -> JSONResponse:
+def tailor(
+    _: TailorRequest,
+    provider: LLMProvider = Depends(get_llm_provider),
+    schema_loader: Callable[[str], Dict[str, Any]] = Depends(get_schema_loader),
+) -> JSONResponse:
+    _ = provider, schema_loader
     return _not_implemented("tailor endpoint is a Phase 0 stub")
