@@ -2,6 +2,116 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Resume",
   "type": "object",
-  "properties": {},
-  "additionalProperties": false
+  "additionalProperties": false,
+  "required": ["meta", "summary", "skills", "experience", "education", "projects"],
+  "properties": {
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total_pages", "structure_hash"],
+      "properties": {
+        "total_pages": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "structure_hash": { "type": "string", "minLength": 1 }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "text"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "text": { "type": "string" }
+      }
+    },
+    "skills": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "lines"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "lines": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["line_id", "text"],
+            "properties": {
+              "line_id": { "type": "string", "minLength": 1 },
+              "text": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "experience": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["exp_id", "company", "title", "start_date", "end_date", "bullets"],
+        "properties": {
+          "exp_id": { "type": "string", "minLength": 1 },
+          "company": { "type": "string" },
+          "title": { "type": "string" },
+          "start_date": { "type": "string" },
+          "end_date": { "type": "string" },
+          "bullets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["bullet_id", "bullet_index", "text", "char_count"],
+              "properties": {
+                "bullet_id": { "type": "string", "minLength": 1 },
+                "bullet_index": { "type": "integer", "minimum": 0 },
+                "text": { "type": "string" },
+                "char_count": { "type": "integer", "minimum": 0 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "education": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["edu_id", "school", "degree", "start_date", "end_date"],
+        "properties": {
+          "edu_id": { "type": "string", "minLength": 1 },
+          "school": { "type": "string" },
+          "degree": { "type": "string" },
+          "start_date": { "type": "string" },
+          "end_date": { "type": "string" }
+        }
+      }
+    },
+    "projects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["project_id", "name", "bullets"],
+        "properties": {
+          "project_id": { "type": "string", "minLength": 1 },
+          "name": { "type": "string" },
+          "bullets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["bullet_id", "bullet_index", "text", "char_count"],
+              "properties": {
+                "bullet_id": { "type": "string", "minLength": 1 },
+                "bullet_index": { "type": "integer", "minimum": 0 },
+                "text": { "type": "string" },
+                "char_count": { "type": "integer", "minimum": 0 }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 }

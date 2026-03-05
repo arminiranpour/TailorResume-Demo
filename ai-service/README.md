@@ -8,6 +8,43 @@ Deterministic pipeline service with provider abstraction (local or API).
 2. `pip install -e .`
 3. `uvicorn app.main:app --reload`
 
+## Parse Resume
+Endpoint: `POST /parse-resume`
+
+Example request:
+```bash
+curl -X POST http://localhost:8000/parse-resume \\
+  -H 'Content-Type: application/json' \\
+  -d '{\"resume_text\":\"Jane Doe\\nExperience\\n...\"}'
+```
+
+Example response shape:
+```json
+{
+  "resume_json": {}
+}
+```
+
+## Parse Job
+Endpoint: `POST /parse-job`
+
+Example request:
+```bash
+curl -X POST http://localhost:8000/parse-job \\
+  -H 'Content-Type: application/json' \\
+  -d '{\"job_text\":\"Senior Backend Engineer\\nResponsibilities\\n...\",\"url\":\"https://example.com/job\"}'
+```
+
+Example response shape:
+```json
+{
+  "job_json": {}
+}
+```
+
+Notes:
+- URL scraping is not implemented in Step 3; `job_text` is required.
+
 ## Environment
 Copy `.env.example` to `.env` and adjust as needed.
 

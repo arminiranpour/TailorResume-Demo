@@ -1,0 +1,5 @@
+Requirement already satisfied: jsonschema in ./.venv/lib/python3.13/site-packages (4.26.0)
+Requirement already satisfied: attrs>=22.2.0 in ./.venv/lib/python3.13/site-packages (from jsonschema) (25.4.0)
+Requirement already satisfied: jsonschema-specifications>=2023.03.6 in ./.venv/lib/python3.13/site-packages (from jsonschema) (2025.9.1)
+Requirement already satisfied: referencing>=0.28.4 in ./.venv/lib/python3.13/site-packages (from jsonschema) (0.37.0)
+Requirement already satisfied: rpds-py>=0.25.0 in ./.venv/lib/python3.13/site-packages (from jsonschema) (0.30.0)

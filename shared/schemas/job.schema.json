@@ -2,6 +2,49 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Job",
   "type": "object",
-  "properties": {},
-  "additionalProperties": false
+  "additionalProperties": false,
+  "required": ["must_have", "nice_to_have", "responsibilities"],
+  "properties": {
+    "title": { "type": ["string", "null"] },
+    "company": { "type": ["string", "null"] },
+    "location": { "type": ["string", "null"] },
+    "remote": { "type": ["boolean", "null"] },
+    "seniority": {
+      "type": ["string", "null"],
+      "enum": ["junior", "mid", "senior", "unknown", null]
+    },
+    "must_have": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["requirement_id", "text"],
+        "properties": {
+          "requirement_id": { "type": "string", "minLength": 1 },
+          "text": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "nice_to_have": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["requirement_id", "text"],
+        "properties": {
+          "requirement_id": { "type": "string", "minLength": 1 },
+          "text": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "responsibilities": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "keywords": {
+      "type": ["array", "null"],
+      "items": { "type": "string" }
+    },
+    "source_url": { "type": ["string", "null"] }
+  }
 }
