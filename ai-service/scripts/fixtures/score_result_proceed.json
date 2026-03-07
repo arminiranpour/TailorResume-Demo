@@ -1,0 +1,23 @@
+{
+  "decision": "PROCEED",
+  "score_total": 82,
+  "score_breakdown": {"must_have": 40, "nice_to_have": 10, "responsibilities": 20, "keywords": 12},
+  "must_have_coverage_percent": 100,
+  "seniority_ok": true,
+  "reasons": [{"code": "OK", "message": "Meets thresholds", "details": null}],
+  "matched_requirements": [
+    {
+      "requirement_id": "req_python",
+      "text": "Python",
+      "evidence": {"source": "skills", "source_id": "skills_1", "text": "Python, FastAPI, SQL"}
+    },
+    {
+      "requirement_id": "req_fastapi",
+      "text": "FastAPI",
+      "evidence": {"source": "experience", "source_id": "exp_1_b1", "text": "Built APIs using FastAPI and PostgreSQL."}
+    }
+  ],
+  "missing_requirements": [
+    {"requirement_id": "req_docker", "text": "Docker", "hard_gate": false}
+  ]
+}

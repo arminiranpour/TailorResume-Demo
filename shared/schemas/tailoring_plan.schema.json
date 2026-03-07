@@ -2,6 +2,64 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "TailoringPlan",
   "type": "object",
-  "properties": {},
-  "additionalProperties": false
+  "additionalProperties": false,
+  "required": ["bullet_actions", "missing_requirements", "prioritized_keywords"],
+  "properties": {
+    "bullet_actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["bullet_id", "rewrite_intent", "target_keywords"],
+        "properties": {
+          "bullet_id": { "type": "string", "minLength": 1 },
+          "rewrite_intent": { "type": "string", "minLength": 1 },
+          "target_keywords": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "missing_requirements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["requirement_id", "text", "hard_gate"],
+        "properties": {
+          "requirement_id": { "type": "string", "minLength": 1 },
+          "text": { "type": ["string", "null"] },
+          "hard_gate": { "type": "boolean" }
+        }
+      }
+    },
+    "prioritized_keywords": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string" }
+    },
+    "skills_reorder_plan": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string" }
+    },
+    "summary_rewrite": {
+      "anyOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["rewrite_intent", "target_keywords"],
+          "properties": {
+            "rewrite_intent": { "type": "string", "minLength": 1 },
+            "target_keywords": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        }
+      ]
+    }
+  }
 }

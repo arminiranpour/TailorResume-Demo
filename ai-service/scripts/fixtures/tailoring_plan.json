@@ -1,0 +1,28 @@
+{
+  "bullet_actions": [
+    {
+      "bullet_id": "exp_1_b1",
+      "rewrite_intent": "rewrite",
+      "target_keywords": ["FastAPI", "APIs"]
+    },
+    {
+      "bullet_id": "exp_1_b2",
+      "rewrite_intent": "keep",
+      "target_keywords": []
+    },
+    {
+      "bullet_id": "proj_1_b1",
+      "rewrite_intent": "rewrite",
+      "target_keywords": ["Docker"]
+    }
+  ],
+  "missing_requirements": [
+    {"requirement_id": "req_docker", "text": "Docker", "hard_gate": false}
+  ],
+  "prioritized_keywords": ["FastAPI", "APIs"],
+  "skills_reorder_plan": ["skills_1", "skills_2"],
+  "summary_rewrite": {
+    "rewrite_intent": "rewrite",
+    "target_keywords": ["Python", "FastAPI"]
+  }
+}

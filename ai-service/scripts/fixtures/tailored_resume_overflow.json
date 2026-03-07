@@ -1,0 +1,60 @@
+{
+  "meta": {"total_pages": 1, "structure_hash": "abc"},
+  "summary": {
+    "id": "summary",
+    "text": "Backend engineer with Python and FastAPI focused on scalable API platforms and reliability."
+  },
+  "skills": {
+    "id": "skills",
+    "lines": [
+      {"line_id": "skills_1", "text": "Python, FastAPI, SQL"},
+      {"line_id": "skills_2", "text": "Docker"}
+    ]
+  },
+  "experience": [
+    {
+      "exp_id": "exp_1",
+      "company": "Acme",
+      "title": "Developer",
+      "start_date": "2020",
+      "end_date": "2022",
+      "bullets": [
+        {
+          "bullet_id": "exp_1_b1",
+          "bullet_index": 0,
+          "text": "Built APIs using FastAPI and PostgreSQL with monitoring, caching, and reliability improvements.",
+          "char_count": 43
+        },
+        {
+          "bullet_id": "exp_1_b2",
+          "bullet_index": 1,
+          "text": "Wrote scripts in Python for data processing, automation, and reporting pipelines.",
+          "char_count": 27
+        }
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "project_id": "proj_1",
+      "name": "Tool",
+      "bullets": [
+        {
+          "bullet_id": "proj_1_b1",
+          "bullet_index": 0,
+          "text": "Created internal tooling for deployments with release automation and rollback support.",
+          "char_count": 41
+        }
+      ]
+    }
+  ],
+  "education": [
+    {
+      "edu_id": "edu_1",
+      "school": "State University",
+      "degree": "BS",
+      "start_date": "2016",
+      "end_date": "2020"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "title": "Backend Engineer",
+  "company": "ExampleCo",
+  "location": "Remote",
+  "remote": true,
+  "seniority": "mid",
+  "must_have": [
+    {"requirement_id": "req_python", "text": "Python"},
+    {"requirement_id": "req_fastapi", "text": "FastAPI"}
+  ],
+  "nice_to_have": [
+    {"requirement_id": "req_docker", "text": "Docker"}
+  ],
+  "responsibilities": ["Build APIs", "Maintain backend services"],
+  "keywords": ["Backend", "APIs"]
+}

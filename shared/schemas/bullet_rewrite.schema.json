@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["bullet_id", "rewritten_text", "keywords_used", "notes"],
+  "properties": {
+    "bullet_id": {"type": "string", "minLength": 1},
+    "rewritten_text": {"type": "string"},
+    "keywords_used": {"type": "array", "items": {"type": "string"}},
+    "notes": {"type": "string"}
+  }
+}

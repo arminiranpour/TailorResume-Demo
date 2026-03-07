@@ -1,0 +1,118 @@
+{
+  "resume_json": {
+    "meta": {"total_pages": 1, "structure_hash": "abc"},
+    "summary": {"id": "summary", "text": "Backend engineer with Python and FastAPI."},
+    "skills": {
+      "id": "skills",
+      "lines": [
+        {"line_id": "skills_1", "text": "Python, FastAPI, SQL"},
+        {"line_id": "skills_2", "text": "Docker"}
+      ]
+    },
+    "experience": [
+      {
+        "exp_id": "exp_1",
+        "company": "Acme",
+        "title": "Developer",
+        "start_date": "2020",
+        "end_date": "2022",
+        "bullets": [
+          {
+            "bullet_id": "exp_1_b1",
+            "bullet_index": 0,
+            "text": "Built APIs using FastAPI and PostgreSQL.",
+            "char_count": 43
+          },
+          {
+            "bullet_id": "exp_1_b2",
+            "bullet_index": 1,
+            "text": "Wrote scripts in Python.",
+            "char_count": 27
+          }
+        ]
+      }
+    ],
+    "projects": [
+      {
+        "project_id": "proj_1",
+        "name": "Tool",
+        "bullets": [
+          {
+            "bullet_id": "proj_1_b1",
+            "bullet_index": 0,
+            "text": "Created internal tooling for deployments.",
+            "char_count": 41
+          }
+        ]
+      }
+    ],
+    "education": [
+      {
+        "edu_id": "edu_1",
+        "school": "State University",
+        "degree": "BS",
+        "start_date": "2016",
+        "end_date": "2020"
+      }
+    ]
+  },
+  "job_json": {
+    "title": "Backend Engineer",
+    "company": "ExampleCo",
+    "location": "Remote",
+    "remote": true,
+    "seniority": "mid",
+    "must_have": [
+      {"requirement_id": "req_python", "text": "Python"},
+      {"requirement_id": "req_fastapi", "text": "FastAPI"}
+    ],
+    "nice_to_have": [
+      {"requirement_id": "req_docker", "text": "Docker"}
+    ],
+    "responsibilities": ["Build APIs", "Maintain backend services"],
+    "keywords": ["Backend", "APIs"]
+  },
+  "score_result": {
+    "decision": "PROCEED",
+    "score_total": 82,
+    "score_breakdown": {"must_have": 40, "nice_to_have": 10, "responsibilities": 20, "keywords": 12},
+    "must_have_coverage_percent": 100,
+    "seniority_ok": true,
+    "reasons": [{"code": "OK", "message": "Meets thresholds", "details": null}],
+    "matched_requirements": [
+      {
+        "requirement_id": "req_python",
+        "text": "Python",
+        "evidence": {"source": "skills", "source_id": "skills_1", "text": "Python, FastAPI, SQL"}
+      },
+      {
+        "requirement_id": "req_fastapi",
+        "text": "FastAPI",
+        "evidence": {"source": "experience", "source_id": "exp_1_b1", "text": "Built APIs using FastAPI and PostgreSQL."}
+      }
+    ],
+    "missing_requirements": [
+      {"requirement_id": "req_docker", "text": "Docker", "hard_gate": false}
+    ]
+  },
+  "tailoring_plan": {
+    "bullet_actions": [
+      {"bullet_id": "exp_1_b1", "rewrite_intent": "rewrite", "target_keywords": ["FastAPI", "APIs"]},
+      {"bullet_id": "exp_1_b2", "rewrite_intent": "keep", "target_keywords": []},
+      {"bullet_id": "proj_1_b1", "rewrite_intent": "rewrite", "target_keywords": ["Docker"]}
+    ],
+    "missing_requirements": [
+      {"requirement_id": "req_docker", "text": "Docker", "hard_gate": false}
+    ],
+    "prioritized_keywords": ["FastAPI", "APIs"],
+    "skills_reorder_plan": ["skills_1", "skills_2"],
+    "summary_rewrite": {"rewrite_intent": "rewrite", "target_keywords": ["Python", "FastAPI"]}
+  },
+  "character_budgets": {
+    "summary": 140,
+    "bullets": {
+      "exp_1_b1": 90,
+      "proj_1_b1": 90
+    }
+  }
+}

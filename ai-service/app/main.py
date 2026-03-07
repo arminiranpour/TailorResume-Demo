@@ -12,6 +12,14 @@ from app.providers.factory import get_provider
 from app.pipelines.job_parser import JobParseError, extract_job_json
 from app.pipelines.resume_parser import ResumeParseError, extract_resume_json
 from app.pipelines.scoring import run_scoring
+from app.pipelines.tailoring_plan import TailorNotAllowed, TailoringPlanError, generate_tailoring_plan
+from app.pipelines.allowed_vocab import build_allowed_vocab
+from app.pipelines.bullet_rewrite import (
+    BulletRewriteError,
+    BulletRewriteNotAllowed,
+    rewrite_resume_text_with_audit,
+)
+from app.pipelines.budget_enforcement import BudgetEnforcementError, enforce_budgets
 from shared.scoring import decide
 from app.schemas.schema_loader import load_schema
 
@@ -91,9 +99,30 @@ class TailorRequest(BaseModel):
     job_json: Dict[str, Any]
 
 
+class TailorPlanRequest(BaseModel):
+    resume_json: Dict[str, Any]
+    job_json: Dict[str, Any]
+    score_result: Dict[str, Any]
+
+
 class ScoreRequest(BaseModel):
     resume_json: Dict[str, Any]
     job_json: Dict[str, Any]
+
+
+class RewriteBulletsRequest(BaseModel):
+    resume_json: Dict[str, Any]
+    job_json: Dict[str, Any]
+    score_result: Dict[str, Any]
+    tailoring_plan: Dict[str, Any]
+    character_budgets: Optional[Dict[str, Any]] = None
+
+
+class EnforceBudgetsRequest(BaseModel):
+    original_resume_json: Dict[str, Any]
+    tailored_resume_json: Dict[str, Any]
+    score_result: Dict[str, Any]
+    character_budgets: Optional[Dict[str, Any]] = None
 
 
 def _not_implemented(detail: str) -> JSONResponse:
@@ -187,6 +216,162 @@ def tailor(
 ) -> JSONResponse:
     _ = provider, schema_loader
     return _not_implemented("tailor endpoint is a Phase 0 stub")
+
+
+@app.post("/tailor-plan")
+def tailor_plan(
+    payload: TailorPlanRequest,
+    provider: LLMProvider = Depends(get_llm_provider),
+    schema_loader: Callable[[str], Dict[str, Any]] = Depends(get_schema_loader),
+) -> JSONResponse:
+    _ = schema_loader
+    try:
+        plan = generate_tailoring_plan(
+            payload.resume_json,
+            payload.job_json,
+            payload.score_result,
+            provider,
+        )
+    except TailorNotAllowed as exc:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": "tailor_not_allowed",
+                "detail": str(exc),
+                "decision": exc.decision,
+                "reasons": exc.reasons,
+            },
+        )
+    except TailoringPlanError as exc:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": "tailoring_plan_invalid",
+                "details": exc.details,
+                "raw_preview": exc.raw_preview,
+            },
+        )
+    except ValueError as exc:
+        return JSONResponse(
+            status_code=422,
+            content={"error": "invalid_request", "detail": str(exc)},
+        )
+    except Exception as exc:
+        return JSONResponse(
+            status_code=500,
+            content={"error": "tailoring_plan_failed", "detail": str(exc)},
+        )
+    return JSONResponse(status_code=200, content={"tailoring_plan": plan})
+
+
+@app.post("/rewrite-bullets")
+def rewrite_bullets(
+    payload: RewriteBulletsRequest,
+    provider: LLMProvider = Depends(get_llm_provider),
+    schema_loader: Callable[[str], Dict[str, Any]] = Depends(get_schema_loader),
+) -> JSONResponse:
+    _ = schema_loader
+    try:
+        tailored_resume_json, audit_log = rewrite_resume_text_with_audit(
+            payload.resume_json,
+            payload.job_json,
+            payload.score_result,
+            payload.tailoring_plan,
+            provider,
+            character_budgets=payload.character_budgets,
+        )
+    except BulletRewriteNotAllowed as exc:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": "rewrite_not_allowed",
+                "detail": str(exc),
+                "decision": exc.decision,
+                "reasons": exc.reasons,
+            },
+        )
+    except BulletRewriteError as exc:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": "bullet_rewrite_invalid",
+                "details": exc.details,
+                "raw_preview": exc.raw_preview,
+            },
+        )
+    except ValueError as exc:
+        return JSONResponse(
+            status_code=422,
+            content={"error": "invalid_request", "detail": str(exc)},
+        )
+    except Exception as exc:
+        return JSONResponse(
+            status_code=500,
+            content={"error": "bullet_rewrite_failed", "detail": str(exc)},
+        )
+    return JSONResponse(
+        status_code=200,
+        content={"tailored_resume_json": tailored_resume_json, "audit_log": audit_log},
+    )
+
+
+@app.post("/enforce-budgets")
+def enforce_budgets_endpoint(
+    payload: EnforceBudgetsRequest,
+    provider: LLMProvider = Depends(get_llm_provider),
+    schema_loader: Callable[[str], Dict[str, Any]] = Depends(get_schema_loader),
+) -> JSONResponse:
+    _ = schema_loader
+    decision = payload.score_result.get("decision") if isinstance(payload.score_result, dict) else None
+    if decision != "PROCEED":
+        reasons = payload.score_result.get("reasons") if isinstance(payload.score_result, dict) else []
+        if not isinstance(reasons, list):
+            reasons = []
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": "budget_enforcement_not_allowed",
+                "detail": f"Budget enforcement not allowed for decision={decision}",
+                "decision": decision,
+                "reasons": reasons,
+            },
+        )
+    try:
+        final_resume_json, budget_report, audit_log = enforce_budgets(
+            payload.original_resume_json,
+            payload.tailored_resume_json,
+            provider,
+            build_allowed_vocab(payload.original_resume_json),
+            budgets_override=payload.character_budgets,
+        )
+    except BudgetEnforcementError as exc:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": "budget_enforcement_invalid",
+                "details": exc.details,
+                "raw_preview": exc.raw_preview,
+            },
+        )
+    except ValueError as exc:
+        return JSONResponse(
+            status_code=422,
+            content={"error": "invalid_request", "detail": str(exc)},
+        )
+    except Exception as exc:
+        return JSONResponse(
+            status_code=500,
+            content={"error": "budget_enforcement_failed", "detail": str(exc)},
+        )
+    return JSONResponse(
+        status_code=200,
+        content={
+            "final_resume_json": final_resume_json,
+            "budgets": budget_report["budgets"],
+            "size_report": budget_report["size_report"],
+            "audit_log": audit_log,
+        },
+    )
 
 
 @app.post("/score")

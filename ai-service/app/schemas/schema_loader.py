@@ -7,6 +7,9 @@ _SCHEMA_MAP = {
     "resume": "resume.schema.json",
     "job": "job.schema.json",
     "tailoring_plan": "tailoring_plan.schema.json",
+    "bullet_rewrite": "bullet_rewrite.schema.json",
+    "summary_rewrite": "summary_rewrite.schema.json",
+    "compress_text": "compress_text.schema.json",
 }
 
 

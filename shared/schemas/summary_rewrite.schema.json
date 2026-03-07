@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["rewritten_text", "keywords_used"],
+  "properties": {
+    "rewritten_text": {"type": "string"},
+    "keywords_used": {"type": "array", "items": {"type": "string"}}
+  }
+}
