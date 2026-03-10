@@ -1,0 +1,36 @@
+{
+  "meta": { "total_pages": 1, "structure_hash": "test-structure" },
+  "summary": { "id": "summary", "text": "Backend engineer with API focus." },
+  "skills": {
+    "id": "skills",
+    "lines": [
+      { "line_id": "skills_1", "text": "Python" },
+      { "line_id": "skills_2", "text": "SQL" }
+    ]
+  },
+  "experience": [
+    {
+      "exp_id": "exp_1",
+      "company": "Acme",
+      "title": "Engineer",
+      "start_date": "2020",
+      "end_date": "2022",
+      "bullets": [
+        {
+          "bullet_id": "exp_1_b1",
+          "bullet_index": 0,
+          "text": "Built APIs for payments.",
+          "char_count": 24
+        },
+        {
+          "bullet_id": "exp_1_b2",
+          "bullet_index": 1,
+          "text": "Improved latency by 20%.",
+          "char_count": 27
+        }
+      ]
+    }
+  ],
+  "projects": [],
+  "education": []
+}

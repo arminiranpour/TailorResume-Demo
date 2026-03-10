@@ -1,3 +1,5 @@
+import base64
+import tempfile
 import time
 from typing import Any, Callable, Dict, Optional
 
@@ -20,6 +22,9 @@ from app.pipelines.bullet_rewrite import (
     rewrite_resume_text_with_audit,
 )
 from app.pipelines.budget_enforcement import BudgetEnforcementError, enforce_budgets
+from app.docx_engine.editor import apply_tailored_text_to_docx
+from app.docx_engine.mapping import build_docx_mapping
+from app.docx_engine.types import DocxReplacementError
 from shared.scoring import decide
 from app.schemas.schema_loader import load_schema
 
@@ -123,6 +128,13 @@ class EnforceBudgetsRequest(BaseModel):
     tailored_resume_json: Dict[str, Any]
     score_result: Dict[str, Any]
     character_budgets: Optional[Dict[str, Any]] = None
+
+
+class RenderDocxRequest(BaseModel):
+    original_resume_json: Dict[str, Any]
+    final_resume_json: Dict[str, Any]
+    original_docx_base64: Optional[str] = None
+    original_docx_name: Optional[str] = None
 
 
 def _not_implemented(detail: str) -> JSONResponse:
@@ -370,6 +382,75 @@ def enforce_budgets_endpoint(
             "budgets": budget_report["budgets"],
             "size_report": budget_report["size_report"],
             "audit_log": audit_log,
+        },
+    )
+
+
+@app.post("/render-docx")
+def render_docx(payload: RenderDocxRequest) -> JSONResponse:
+    if not payload.original_docx_base64:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": "missing_docx_base64",
+                "detail": "original_docx_base64 is required",
+            },
+        )
+
+    try:
+        original_bytes = base64.b64decode(payload.original_docx_base64)
+    except Exception as exc:
+        return JSONResponse(
+            status_code=422,
+            content={"error": "invalid_docx_base64", "detail": str(exc)},
+        )
+
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".docx") as docx_file:
+            docx_file.write(original_bytes)
+            docx_file.flush()
+            mapping = build_docx_mapping(docx_file.name, payload.original_resume_json)
+            result = apply_tailored_text_to_docx(
+                docx_file.name,
+                payload.original_resume_json,
+                payload.final_resume_json,
+                mapping,
+            )
+    except DocxReplacementError as exc:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": "docx_render_invalid",
+                "detail": str(exc),
+                "details": exc.details,
+            },
+        )
+    except Exception as exc:
+        return JSONResponse(
+            status_code=500,
+            content={"error": "docx_render_failed", "detail": str(exc)},
+        )
+
+    docx_bytes = result.get("docx_bytes")
+    if not isinstance(docx_bytes, (bytes, bytearray)):
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "docx_render_failed",
+                "detail": "DOCX bytes missing from render output",
+            },
+        )
+
+    file_name = payload.original_docx_name or "tailored"
+    if not file_name.endswith(".docx"):
+        file_name = f"{file_name}.docx"
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "docx_base64": base64.b64encode(docx_bytes).decode("utf-8"),
+            "file_name": file_name,
+            "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         },
     )
 
