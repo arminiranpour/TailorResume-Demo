@@ -53,7 +53,7 @@ def generate_tailoring_plan(
     messages = build_llm_messages(system_prompt, prompt_payload, task_label="tailor_plan")
 
     config = get_config()
-    raw = provider.generate(messages, timeout_seconds=config.llm_timeout_seconds)
+    raw = provider.generate(messages, timeout=config.llm_timeout_seconds)
 
     ok, obj, errors = _parse_and_validate(raw)
     if not ok or obj is None:

@@ -43,7 +43,7 @@ def extract_job_json(
         prompt_text = f"SOURCE_URL: {url}\n\n{normalized}"
     system_prompt = load_system_prompt("job_to_json")
     messages = build_llm_messages(system_prompt, prompt_text, task_label="job_to_json")
-    raw = provider.generate(messages, timeout_seconds=config.llm_timeout_seconds)
+    raw = provider.generate(messages, timeout=config.llm_timeout_seconds)
     ok, obj, errors = _parse_validate_invariants(raw, normalized)
     if ok and obj is not None:
         return obj

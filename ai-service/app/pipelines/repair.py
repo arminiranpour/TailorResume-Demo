@@ -25,7 +25,7 @@ def repair_json_to_schema(
     )
     system_prompt = load_system_prompt("json_repair")
     messages = build_llm_messages(system_prompt, untrusted_block, task_label="json_repair")
-    raw = provider.generate(messages, timeout_seconds=config.llm_timeout_seconds)
+    raw = provider.generate(messages, timeout=config.llm_timeout_seconds)
     return json.loads(raw)
 
 

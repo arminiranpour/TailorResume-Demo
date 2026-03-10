@@ -28,6 +28,6 @@ def get_config() -> AppConfig:
         llm_provider=os.getenv("LLM_PROVIDER", "local"),
         ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
         ollama_model=os.getenv("OLLAMA_MODEL", "qwen2.5:7b-instruct-q4_K_M"),
-        llm_timeout_seconds=_get_env_int("LLM_TIMEOUT_SECONDS", 120),
+        llm_timeout_seconds=_get_env_int("LLM_TIMEOUT_SECONDS", 180),
         max_input_chars=_get_env_int("MAX_INPUT_CHARS", 30000),
     )

@@ -68,7 +68,7 @@ def health_llm() -> dict:
                 },
                 {"role": "user", "content": "Return exactly {\"ok\":true}."},
             ],
-            timeout_seconds=config.llm_timeout_seconds,
+            timeout=config.llm_timeout_seconds,
         )
         if not isinstance(content, str) or content.strip() == "":
             raise RuntimeError("Empty response from provider")

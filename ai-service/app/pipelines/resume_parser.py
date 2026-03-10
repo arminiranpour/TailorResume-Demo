@@ -51,7 +51,7 @@ def extract_resume_json(resume_text: str, provider: LLMProvider) -> Dict[str, ob
     normalized = normalize_resume_text(resume_text)
     system_prompt = load_system_prompt("resume_to_json")
     messages = build_llm_messages(system_prompt, normalized, task_label="resume_to_json")
-    raw = provider.generate(messages, timeout_seconds=config.llm_timeout_seconds)
+    raw = provider.generate(messages, timeout=config.llm_timeout_seconds)
     ok, obj, errors = _parse_validate_invariants(raw)
     if ok and obj is not None:
         return obj

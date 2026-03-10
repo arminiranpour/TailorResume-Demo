@@ -217,7 +217,7 @@ def compress_to_budget(
     system_prompt = load_system_prompt("compress_text")
     messages = build_llm_messages(system_prompt, json.dumps(payload, ensure_ascii=True), task_label="compress_text")
     config = get_config()
-    raw = provider.generate(messages, timeout_seconds=config.llm_timeout_seconds)
+    raw = provider.generate(messages, timeout=config.llm_timeout_seconds)
     obj = _parse_llm_json(raw, "compress_text", provider)
     if obj is None:
         return None

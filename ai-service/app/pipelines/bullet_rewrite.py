@@ -251,7 +251,7 @@ def _call_summary_rewrite(
     system_prompt = load_system_prompt("summary_rewrite")
     messages = build_llm_messages(system_prompt, json.dumps(payload, ensure_ascii=True), task_label="summary_rewrite")
     config = get_config()
-    raw = provider.generate(messages, timeout_seconds=config.llm_timeout_seconds)
+    raw = provider.generate(messages, timeout=config.llm_timeout_seconds)
     obj = _parse_llm_json(raw, "summary_rewrite", provider)
     if obj is None:
         return None
@@ -265,7 +265,7 @@ def _call_summary_rewrite(
         payload["retry_instruction"] = "Remove the disallowed terms. Do not replace them with new terms."
         raw_retry = provider.generate(
             build_llm_messages(system_prompt, json.dumps(payload, ensure_ascii=True), task_label="summary_rewrite"),
-            timeout_seconds=config.llm_timeout_seconds,
+            timeout=config.llm_timeout_seconds,
         )
         obj_retry = _parse_llm_json(raw_retry, "summary_rewrite", provider)
         if obj_retry and isinstance(obj_retry.get("rewritten_text"), str):
@@ -466,7 +466,7 @@ def _call_bullet_rewrite(
     system_prompt = load_system_prompt("bullet_rewrite")
     messages = build_llm_messages(system_prompt, json.dumps(payload, ensure_ascii=True), task_label="bullet_rewrite")
     config = get_config()
-    raw = provider.generate(messages, timeout_seconds=config.llm_timeout_seconds)
+    raw = provider.generate(messages, timeout=config.llm_timeout_seconds)
     obj = _parse_llm_json(raw, "bullet_rewrite", provider)
     if obj is None:
         return None, False
@@ -483,7 +483,7 @@ def _call_bullet_rewrite(
         payload["retry_instruction"] = "Remove the disallowed terms. Do not replace them with new terms."
         raw_retry = provider.generate(
             build_llm_messages(system_prompt, json.dumps(payload, ensure_ascii=True), task_label="bullet_rewrite"),
-            timeout_seconds=config.llm_timeout_seconds,
+            timeout=config.llm_timeout_seconds,
         )
         obj_retry = _parse_llm_json(raw_retry, "bullet_rewrite", provider)
         if obj_retry and obj_retry.get("bullet_id") == bullet_id and isinstance(obj_retry.get("rewritten_text"), str):
@@ -509,7 +509,7 @@ def _compress_text(
     system_prompt = load_system_prompt("compress_text")
     messages = build_llm_messages(system_prompt, json.dumps(payload, ensure_ascii=True), task_label="compress_text")
     config = get_config()
-    raw = provider.generate(messages, timeout_seconds=config.llm_timeout_seconds)
+    raw = provider.generate(messages, timeout=config.llm_timeout_seconds)
     obj = _parse_llm_json(raw, "compress_text", provider)
     if obj is None:
         return None
