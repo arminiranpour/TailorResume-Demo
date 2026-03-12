@@ -11,7 +11,7 @@ from app.schemas.schema_loader import load_schema
 
 
 class DummyProvider(LLMProvider):
-    def generate(self, messages, *, timeout_seconds=None):
+    def generate(self, messages, *, timeout=None, **kwargs):
         raise RuntimeError("provider should not be called")
 
 

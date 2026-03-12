@@ -10,35 +10,12 @@ from app.pipelines.bullet_rewrite import rewrite_resume_text_with_audit
 from app.providers.base import LLMProvider
 
 
-def _extract_payload(messages):
-    content = messages[1]["content"]
-    start = content.find("BEGIN_UNTRUSTED_TEXT")
-    end = content.find("END_UNTRUSTED_TEXT")
-    if start == -1 or end == -1:
-        return {}
-    block = content[start + len("BEGIN_UNTRUSTED_TEXT") : end].strip()
-    try:
-        return json.loads(block)
-    except json.JSONDecodeError:
-        return {}
-
-
 class DummyProvider(LLMProvider):
     def generate(self, messages, *, timeout=None, **kwargs):
-        system_prompt = messages[0]["content"]
-        if "compressed_text" in system_prompt:
-            payload = _extract_payload(messages)
-            max_chars = payload.get("max_chars")
-            candidate = payload.get("candidate_text", "")
-            if isinstance(max_chars, int) and max_chars > 0:
-                compressed = candidate[:max_chars]
-            else:
-                compressed = candidate
-            return json.dumps({"compressed_text": compressed})
         return json.dumps(
             {
                 "bullet_id": "exp_1_b1",
-                "rewritten_text": "Built APIs using FastAPI and PostgreSQL for backend services with reliable delivery.",
+                "rewritten_text": "Developed FastAPI APIs with PostgreSQL for backend services.",
                 "keywords_used": ["FastAPI"],
                 "notes": "",
             }
@@ -49,7 +26,7 @@ def sample_resume():
     return {
         "meta": {"total_pages": 1, "structure_hash": "abc"},
         "summary": {"id": "summary", "text": "Backend engineer."},
-        "skills": {"id": "skills", "lines": [{"line_id": "skills_1", "text": "Python, FastAPI"}]},
+        "skills": {"id": "skills", "lines": [{"line_id": "skills_1", "text": "Python, FastAPI, PostgreSQL"}]},
         "experience": [
             {
                 "exp_id": "exp_1",
@@ -109,17 +86,21 @@ def sample_plan():
     }
 
 
-def test_budget_enforced():
+def test_rewrite_changes_text_and_preserves_structure():
     resume = sample_resume()
-    budgets = {"bullets": {"exp_1_b1": 40}}
     tailored, audit_log = rewrite_resume_text_with_audit(
         resume,
         sample_job(),
         sample_score(),
         sample_plan(),
         DummyProvider(),
-        character_budgets=budgets,
     )
     text = tailored["experience"][0]["bullets"][0]["text"]
-    assert len(text) <= 40
-    assert "exp_1_b1" in audit_log["compressed"]
+    assert text != resume["experience"][0]["bullets"][0]["text"]
+    assert audit_log["rejected_for_new_terms"] == []
+    assert audit_log["bullet_details"][0]["changed"] is True
+    assert len(tailored["experience"]) == len(resume["experience"])
+    assert len(tailored["projects"]) == len(resume["projects"])
+    assert [b["bullet_id"] for b in tailored["experience"][0]["bullets"]] == [
+        b["bullet_id"] for b in resume["experience"][0]["bullets"]
+    ]

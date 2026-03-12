@@ -10,7 +10,7 @@ from app.providers.base import LLMProvider
 
 
 class DummyProvider(LLMProvider):
-    def generate(self, messages, *, timeout_seconds=None):
+    def generate(self, messages, *, timeout=None, **kwargs):
         raise RuntimeError("provider should not be called")
 
 

@@ -11,7 +11,7 @@ from app.providers.base import LLMProvider
 
 
 class DummyProvider(LLMProvider):
-    def generate(self, messages, *, timeout_seconds=None):
+    def generate(self, messages, *, timeout=None, **kwargs):
         raise RuntimeError("provider should not be called")
 
 
@@ -65,5 +65,22 @@ def test_integrity_invariants_fail():
         enforce_budgets(original, tailored, DummyProvider(), allowed_vocab, budgets_override=None)
     except BudgetEnforcementError as exc:
         assert any("bullets" in message for message in exc.details)
+        return
+    raise AssertionError("Expected BudgetEnforcementError")
+
+
+def test_skills_line_reorder_fails():
+    original = sample_resume()
+    tailored = sample_resume()
+    original["skills"]["lines"].append({"line_id": "skills_2", "text": "SQL"})
+    tailored["skills"]["lines"] = [
+        {"line_id": "skills_2", "text": "SQL"},
+        {"line_id": "skills_1", "text": "Python"},
+    ]
+    allowed_vocab = build_allowed_vocab(original)
+    try:
+        enforce_budgets(original, tailored, DummyProvider(), allowed_vocab, budgets_override=None)
+    except BudgetEnforcementError as exc:
+        assert any("skills.lines order or ids changed" in message for message in exc.details)
         return
     raise AssertionError("Expected BudgetEnforcementError")

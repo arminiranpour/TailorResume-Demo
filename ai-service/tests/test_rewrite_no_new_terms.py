@@ -11,7 +11,7 @@ from app.providers.base import LLMProvider
 
 
 class DummyProvider(LLMProvider):
-    def generate(self, messages, *, timeout_seconds=None):
+    def generate(self, messages, *, timeout=None, **kwargs):
         return json.dumps(
             {
                 "bullet_id": "exp_1_b1",
@@ -98,3 +98,4 @@ def test_no_new_terms_added():
     text = tailored["experience"][0]["bullets"][0]["text"]
     assert "Kubernetes" not in text
     assert audit_log["rejected_for_new_terms"] == ["exp_1_b1"]
+    assert audit_log["bullet_details"][0]["reject_reason"] == "disallowed_terms"

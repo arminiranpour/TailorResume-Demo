@@ -8,7 +8,7 @@ You may ONLY use bullet_id values from the provided list.
 The output must include:
 - bullet_actions for every bullet in the resume (experience and projects).
 - rewrite_intent as either "keep" or a specific rewrite intent.
-- target_keywords as a list; it may be empty when rewrite_intent is "keep".
+- target_keywords as a list; it may be empty only when rewrite_intent is "keep".
 - prioritized_keywords derived from JobJSON must_have, nice_to_have, responsibilities, or keywords.
   Only include keywords that are already evidenced in the resume OR safe generic verbs like "developed", "implemented", "built", "designed", "led", "optimized".
   Do not introduce any new tools or technologies.
@@ -19,4 +19,10 @@ Optional fields:
 Ordering rules:
 - Keep experience order as in ResumeJSON.
 - Within each experience, order bullets by bullet_index.
+Selection guidance:
+- Choose a meaningful subset of bullets to rewrite for PROCEED cases; include multiple bullets across experiences when evidence exists.
+- Do not stop after the first eligible bullet.
+- Use "keep" only when no honest improvement is possible given the bullet's existing evidence.
+- For each rewritten bullet, provide 1-3 job-relevant target_keywords that are already evidenced by that bullet or elsewhere in the resume.
+- Never include target_keywords that are not already supported by the resume.
 Return JSON only.

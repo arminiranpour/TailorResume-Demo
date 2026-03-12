@@ -25,7 +25,7 @@ def _extract_payload(messages):
 
 
 class DummyProvider(LLMProvider):
-    def generate(self, messages, *, timeout_seconds=None):
+    def generate(self, messages, *, timeout=None, **kwargs):
         system_prompt = messages[0]["content"]
         if "compressed_text" in system_prompt:
             payload = _extract_payload(messages)
@@ -101,3 +101,22 @@ def test_budget_global_enforced():
     assert len(final_resume["experience"][0]["bullets"][0]["text"]) <= len(
         original["experience"][0]["bullets"][0]["text"]
     )
+
+
+def test_budget_preserves_skills_line_identity():
+    original = sample_resume()
+    original["skills"]["lines"][0]["text"] = "Python, FastAPI"
+    tailored = sample_resume()
+    tailored["skills"]["lines"][0]["text"] = "FastAPI, Python"
+    allowed_vocab = build_allowed_vocab(original)
+    final_resume, _, _ = enforce_budgets(
+        original,
+        tailored,
+        DummyProvider(),
+        allowed_vocab,
+        budgets_override=None,
+    )
+    assert [line["line_id"] for line in final_resume["skills"]["lines"]] == [
+        line["line_id"] for line in original["skills"]["lines"]
+    ]
+    assert final_resume["skills"]["lines"][0]["text"] == "FastAPI, Python"

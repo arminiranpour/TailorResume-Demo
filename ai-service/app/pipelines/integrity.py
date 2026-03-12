@@ -64,8 +64,8 @@ def _check_skills(original: Dict[str, Any], final: Dict[str, Any], errors: List[
         return
     original_ids = [line.get("line_id") for line in original_lines if isinstance(line, dict)]
     final_ids = [line.get("line_id") for line in final_lines if isinstance(line, dict)]
-    if sorted(original_ids) != sorted(final_ids):
-        errors.append("skills.lines ids changed")
+    if original_ids != final_ids:
+        errors.append("skills.lines order or ids changed")
 
 
 def _check_experience(original: Dict[str, Any], final: Dict[str, Any], errors: List[str]) -> None:

@@ -63,7 +63,7 @@ def rewrite_resume_text_with_audit(
     tailoring_plan: Dict[str, Any],
     provider: LLMProvider,
     character_budgets: Optional[Dict[str, Any]] = None,
-) -> Tuple[Dict[str, Any], Dict[str, List[str]]]:
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     if not isinstance(resume_json, dict) or not isinstance(job_json, dict) or not isinstance(score_result, dict):
         raise ValueError("resume_json, job_json, and score_result must be objects")
     if not isinstance(tailoring_plan, dict):
@@ -88,10 +88,14 @@ def rewrite_resume_text_with_audit(
         "kept_bullets": [],
         "rejected_for_new_terms": [],
         "compressed": [],
+        "bullet_details": [],
+        "summary_detail": None,
+        "skills_details": [],
     }
 
-    _rewrite_summary(tailored, job_json, tailoring_plan, provider, allowed_vocab, budgets)
+    _rewrite_summary(tailored, job_json, tailoring_plan, provider, allowed_vocab, budgets, audit_log)
     _reorder_skills(tailored, tailoring_plan)
+    _tailor_skill_lines(tailored, job_json, tailoring_plan, allowed_vocab, audit_log)
     _rewrite_bullets(
         tailored,
         job_json,
@@ -184,23 +188,48 @@ def _rewrite_summary(
     provider: LLMProvider,
     allowed_vocab: Dict[str, Any],
     budgets: Dict[str, Any],
+    audit_log: Dict[str, Any],
 ) -> None:
+    summary_detail = {
+        "original_text": "",
+        "rewrite_intent": None,
+        "target_keywords": [],
+        "candidate_text": None,
+        "final_text": None,
+        "skip_reason": None,
+        "reject_reason": None,
+        "changed": False,
+    }
     summary_plan = tailoring_plan.get("summary_rewrite")
     if not isinstance(summary_plan, dict):
+        summary_detail["skip_reason"] = "no_summary_plan"
+        audit_log["summary_detail"] = summary_detail
         return
     rewrite_intent = summary_plan.get("rewrite_intent")
+    if isinstance(rewrite_intent, str):
+        summary_detail["rewrite_intent"] = rewrite_intent
     if isinstance(rewrite_intent, str) and rewrite_intent.strip().lower() in _REWRITE_KEEP:
+        summary_detail["skip_reason"] = "rewrite_intent_keep"
+        audit_log["summary_detail"] = summary_detail
         return
     target_keywords = summary_plan.get("target_keywords") if isinstance(summary_plan.get("target_keywords"), list) else []
     if not target_keywords:
+        summary_detail["skip_reason"] = "empty_target_keywords"
+        audit_log["summary_detail"] = summary_detail
         return
 
     summary = tailored.get("summary") if isinstance(tailored.get("summary"), dict) else None
     if summary is None:
+        summary_detail["skip_reason"] = "missing_summary"
+        audit_log["summary_detail"] = summary_detail
         return
     original_text = summary.get("text")
     if not isinstance(original_text, str) or original_text.strip() == "":
+        summary_detail["skip_reason"] = "missing_summary_text"
+        audit_log["summary_detail"] = summary_detail
         return
+    summary_detail["original_text"] = original_text
+    summary_detail["target_keywords"] = list(target_keywords)
 
     budget = budgets.get("summary")
     rewritten_text = _call_summary_rewrite(
@@ -212,17 +241,26 @@ def _rewrite_summary(
         budget,
     )
     if rewritten_text is None:
+        summary_detail["skip_reason"] = "llm_no_rewrite_or_rejected"
+        audit_log["summary_detail"] = summary_detail
         return
+    summary_detail["candidate_text"] = rewritten_text
     if budget is not None and len(rewritten_text) > budget:
         compressed = _compress_text(original_text, rewritten_text, budget, provider)
         if compressed is not None:
             rewritten_text = compressed
             disallowed_after = _find_disallowed_terms(rewritten_text, allowed_vocab, target_keywords)
             if disallowed_after:
+                summary_detail["reject_reason"] = "disallowed_terms_after_compress"
+                summary_detail["disallowed_terms"] = disallowed_after
+                audit_log["summary_detail"] = summary_detail
                 return
         if budget is not None and len(rewritten_text) > budget:
             rewritten_text = _truncate_to_budget(rewritten_text, budget)
     summary["text"] = rewritten_text
+    summary_detail["final_text"] = rewritten_text
+    summary_detail["changed"] = rewritten_text != original_text
+    audit_log["summary_detail"] = summary_detail
 
 
 def _call_summary_rewrite(
@@ -278,9 +316,19 @@ def _call_summary_rewrite(
 
 
 def _reorder_skills(tailored: Dict[str, Any], tailoring_plan: Dict[str, Any]) -> None:
-    plan = tailoring_plan.get("skills_reorder_plan")
-    if not isinstance(plan, list):
-        return
+    # Skills line order must remain unchanged for DOCX mapping integrity.
+    # Tailoring should only adjust text within each line (handled elsewhere).
+    _ = tailoring_plan
+    return
+
+
+def _tailor_skill_lines(
+    tailored: Dict[str, Any],
+    job_json: Dict[str, Any],
+    tailoring_plan: Dict[str, Any],
+    allowed_vocab: Dict[str, Any],
+    audit_log: Dict[str, Any],
+) -> None:
     skills = tailored.get("skills") if isinstance(tailored.get("skills"), dict) else None
     if skills is None:
         return
@@ -288,37 +336,59 @@ def _reorder_skills(tailored: Dict[str, Any], tailoring_plan: Dict[str, Any]) ->
     if not lines:
         return
 
-    line_map: Dict[str, Dict[str, Any]] = {}
-    original_order: List[str] = []
+    candidates = _collect_candidate_keywords(job_json, tailoring_plan, allowed_vocab)
+    if not candidates:
+        for line in lines:
+            if not isinstance(line, dict):
+                continue
+            line_id = line.get("line_id")
+            original_text = line.get("text")
+            if not isinstance(line_id, str) or not isinstance(original_text, str):
+                continue
+            audit_log["skills_details"].append(
+                {
+                    "line_id": line_id,
+                    "original_text": original_text,
+                    "final_text": original_text,
+                    "changed": False,
+                    "skip_reason": "no_candidate_keywords",
+                    "target_keywords": [],
+                }
+            )
+        return
+
     for line in lines:
         if not isinstance(line, dict):
             continue
         line_id = line.get("line_id")
-        if isinstance(line_id, str):
-            line_map[line_id] = line
-            original_order.append(line_id)
-
-    reordered: List[Dict[str, Any]] = []
-    seen = set()
-    for line_id in plan:
-        if not isinstance(line_id, str):
+        original_text = line.get("text")
+        if not isinstance(line_id, str) or not isinstance(original_text, str):
             continue
-        item = line_map.get(line_id)
-        if item is None:
+        detail = {
+            "line_id": line_id,
+            "original_text": original_text,
+            "target_keywords": [],
+            "final_text": original_text,
+            "changed": False,
+            "skip_reason": None,
+        }
+        segments, separator = _split_skills_line(original_text)
+        if len(segments) <= 1:
+            detail["skip_reason"] = "single_segment"
+            audit_log["skills_details"].append(detail)
             continue
-        if line_id in seen:
+        scored = _score_skill_segments(segments, candidates)
+        reordered = _reorder_segments(scored)
+        if reordered == segments:
+            detail["skip_reason"] = "no_reorder_needed"
+            audit_log["skills_details"].append(detail)
             continue
-        seen.add(line_id)
-        reordered.append(item)
-
-    for line_id in original_order:
-        if line_id in seen:
-            continue
-        item = line_map.get(line_id)
-        if item is not None:
-            reordered.append(item)
-
-    skills["lines"] = reordered
+        detail["target_keywords"] = _extract_matching_keywords(reordered, candidates)
+        new_text = separator.join(reordered)
+        line["text"] = new_text
+        detail["final_text"] = new_text
+        detail["changed"] = new_text != original_text
+        audit_log["skills_details"].append(detail)
 
 
 def _rewrite_bullets(
@@ -328,7 +398,7 @@ def _rewrite_bullets(
     provider: LLMProvider,
     allowed_vocab: Dict[str, Any],
     budgets: Dict[str, Any],
-    audit_log: Dict[str, List[str]],
+    audit_log: Dict[str, Any],
 ) -> None:
     action_map = _build_action_map(tailoring_plan)
     bullet_budgets = budgets.get("bullets", {})
@@ -373,31 +443,51 @@ def _rewrite_bullet(
     provider: LLMProvider,
     allowed_vocab: Dict[str, Any],
     bullet_budgets: Dict[str, int],
-    audit_log: Dict[str, List[str]],
+    audit_log: Dict[str, Any],
 ) -> None:
     bullet_id = bullet.get("bullet_id")
     original_text = bullet.get("text")
     if not isinstance(bullet_id, str) or not isinstance(original_text, str):
         return
+    detail = {
+        "bullet_id": bullet_id,
+        "original_text": original_text,
+        "rewrite_intent": None,
+        "target_keywords": [],
+        "candidate_text": None,
+        "final_text": None,
+        "skip_reason": None,
+        "reject_reason": None,
+        "changed": False,
+    }
 
     action = action_map.get(bullet_id)
     if not isinstance(action, dict):
         audit_log["kept_bullets"].append(bullet_id)
+        detail["skip_reason"] = "missing_action"
+        _append_bullet_detail(audit_log, detail)
         return
 
     rewrite_intent = action.get("rewrite_intent")
+    if isinstance(rewrite_intent, str):
+        detail["rewrite_intent"] = rewrite_intent
     if isinstance(rewrite_intent, str) and rewrite_intent.strip().lower() in _REWRITE_KEEP:
         audit_log["kept_bullets"].append(bullet_id)
+        detail["skip_reason"] = "rewrite_intent_keep"
+        _append_bullet_detail(audit_log, detail)
         return
 
     target_keywords = action.get("target_keywords") if isinstance(action.get("target_keywords"), list) else []
+    detail["target_keywords"] = list(target_keywords)
     if not target_keywords:
         audit_log["kept_bullets"].append(bullet_id)
+        detail["skip_reason"] = "empty_target_keywords"
+        _append_bullet_detail(audit_log, detail)
         return
 
     budget = bullet_budgets.get(bullet_id)
 
-    rewritten_text, rejected = _call_bullet_rewrite(
+    rewritten_text, rejected, disallowed_terms = _call_bullet_rewrite(
         bullet_id,
         original_text,
         job_json,
@@ -408,13 +498,20 @@ def _rewrite_bullet(
     )
     if rejected:
         audit_log["rejected_for_new_terms"].append(bullet_id)
+        detail["reject_reason"] = "disallowed_terms"
+        if disallowed_terms:
+            detail["disallowed_terms"] = disallowed_terms
+        _append_bullet_detail(audit_log, detail)
     if rewritten_text is None:
         if not rejected:
             audit_log["kept_bullets"].append(bullet_id)
+            detail["skip_reason"] = "llm_no_rewrite_or_rejected"
+            _append_bullet_detail(audit_log, detail)
         return
 
     provider_len = len(rewritten_text)
     did_shorten = False
+    detail["candidate_text"] = rewritten_text
     compressed = _compress_text(original_text, rewritten_text, budget, provider)
     if compressed is not None:
         if len(compressed) < len(rewritten_text):
@@ -424,6 +521,9 @@ def _rewrite_bullet(
         disallowed_after = _find_disallowed_terms(rewritten_text, allowed_vocab, target_keywords)
         if disallowed_after:
             audit_log["rejected_for_new_terms"].append(bullet_id)
+            detail["reject_reason"] = "disallowed_terms_after_compress"
+            detail["disallowed_terms"] = disallowed_after
+            _append_bullet_detail(audit_log, detail)
             return
 
     if len(rewritten_text) > budget:
@@ -436,6 +536,9 @@ def _rewrite_bullet(
         _append_unique(audit_log["compressed"], bullet_id)
     bullet["text"] = rewritten_text
     audit_log["rewritten_bullets"].append(bullet_id)
+    detail["final_text"] = rewritten_text
+    detail["changed"] = rewritten_text != original_text
+    _append_bullet_detail(audit_log, detail)
 
 def _call_bullet_rewrite(
     bullet_id: str,
@@ -445,7 +548,7 @@ def _call_bullet_rewrite(
     allowed_vocab: Dict[str, Any],
     provider: LLMProvider,
     budget: Optional[int],
-) -> Tuple[Optional[str], bool]:
+) -> Tuple[Optional[str], bool, Optional[List[str]]]:
     allowed_terms = allowed_vocab.get("terms", set())
     allowed_proper = allowed_vocab.get("proper_nouns", set())
     allowed_target, missing_target = _split_target_keywords(target_keywords, allowed_terms)
@@ -469,13 +572,13 @@ def _call_bullet_rewrite(
     raw = provider.generate(messages, timeout=config.llm_timeout_seconds)
     obj = _parse_llm_json(raw, "bullet_rewrite", provider)
     if obj is None:
-        return None, False
+        return None, False, None
 
     if obj.get("bullet_id") != bullet_id:
-        return None, False
+        return None, False, None
     rewritten_text = obj.get("rewritten_text")
     if not isinstance(rewritten_text, str):
-        return None, False
+        return None, False, None
 
     disallowed = _find_disallowed_terms(rewritten_text, allowed_vocab, target_keywords)
     if disallowed:
@@ -490,9 +593,9 @@ def _call_bullet_rewrite(
             rewritten_text = obj_retry["rewritten_text"]
             disallowed = _find_disallowed_terms(rewritten_text, allowed_vocab, target_keywords)
         if disallowed:
-            return None, True
+            return None, True, disallowed
 
-    return rewritten_text, False
+    return rewritten_text, False, None
 
 
 def _compress_text(
@@ -593,7 +696,7 @@ def _find_disallowed_terms(
             disallowed.add(term)
 
     for term in _extract_proper_noun_candidates(rewritten_text):
-        if term not in allowed_proper:
+        if term not in allowed_proper and term not in allowed_terms:
             disallowed.add(term)
 
     return sorted(disallowed)
@@ -648,7 +751,7 @@ def _extract_proper_noun_candidates(text: str) -> List[str]:
         if idx == 0 and raw[:1].isupper() and raw[1:].islower():
             continue
         if any(ch.isupper() for ch in raw):
-            candidates.append(_normalize_proper_token(raw))
+            candidates.append(_normalize_proper_token(_strip_trailing_periods(raw)))
     return candidates
 
 
@@ -677,6 +780,129 @@ def _truncate_to_budget(text: str, max_chars: int) -> str:
 def _append_unique(items: List[str], value: str) -> None:
     if value not in items:
         items.append(value)
+
+
+def _append_bullet_detail(audit_log: Dict[str, Any], detail: Dict[str, Any]) -> None:
+    details = audit_log.get("bullet_details")
+    if isinstance(details, list):
+        details.append(detail)
+
+
+def _collect_candidate_keywords(
+    job_json: Dict[str, Any],
+    tailoring_plan: Dict[str, Any],
+    allowed_vocab: Dict[str, Any],
+) -> List[str]:
+    allowed_terms = allowed_vocab.get("terms", set())
+    allowed_proper = allowed_vocab.get("proper_nouns", set())
+    candidates: List[str] = []
+
+    prioritized = tailoring_plan.get("prioritized_keywords") if isinstance(tailoring_plan.get("prioritized_keywords"), list) else []
+    for keyword in prioritized:
+        normalized = normalize_text(keyword)
+        if normalized and (normalized in allowed_terms or normalized in allowed_proper):
+            _append_unique(candidates, normalized)
+
+    for text in _iter_job_texts(job_json):
+        for term in _extract_job_terms(text):
+            if term in allowed_terms or term in allowed_proper:
+                _append_unique(candidates, term)
+        if len(candidates) >= 50:
+            break
+    return candidates
+
+
+def _iter_job_texts(job_json: Dict[str, Any]) -> List[str]:
+    texts: List[str] = []
+    title = job_json.get("title")
+    if isinstance(title, str):
+        texts.append(title)
+    keywords = job_json.get("keywords")
+    if isinstance(keywords, list):
+        texts.extend([kw for kw in keywords if isinstance(kw, str)])
+    responsibilities = job_json.get("responsibilities")
+    if isinstance(responsibilities, list):
+        texts.extend([item for item in responsibilities if isinstance(item, str)])
+    for field in ("must_have", "nice_to_have"):
+        items = job_json.get(field)
+        if isinstance(items, list):
+            for item in items:
+                if isinstance(item, dict) and isinstance(item.get("text"), str):
+                    texts.append(item["text"])
+    return texts
+
+
+def _extract_job_terms(text: str) -> List[str]:
+    tokens = tokenize(text)
+    ordered: List[str] = []
+    for token in tokens:
+        _append_unique(ordered, token)
+    for phrase in _ordered_ngrams(tokens, 3):
+        _append_unique(ordered, phrase)
+    return ordered
+
+
+def _ordered_ngrams(tokens: List[str], max_n: int) -> List[str]:
+    ordered: List[str] = []
+    if not tokens or max_n < 2:
+        return ordered
+    n_max = min(max_n, len(tokens))
+    for n in range(2, n_max + 1):
+        for i in range(0, len(tokens) - n + 1):
+            ordered.append(" ".join(tokens[i : i + n]))
+    return ordered
+
+
+def _split_skills_line(text: str) -> Tuple[List[str], str]:
+    if " | " in text:
+        parts = [part.strip() for part in text.split(" | ")]
+        return parts, " | "
+    if " / " in text:
+        parts = [part.strip() for part in text.split(" / ")]
+        return parts, " / "
+    if ";" in text:
+        parts = [part.strip() for part in text.split(";") if part.strip() != ""]
+        return parts, "; "
+    if "," in text:
+        parts = [part.strip() for part in text.split(",") if part.strip() != ""]
+        return parts, ", "
+    return [text.strip()], ", "
+
+
+def _score_skill_segments(segments: List[str], candidates: List[str]) -> List[Tuple[str, int, int]]:
+    scored: List[Tuple[str, int, int]] = []
+    for idx, segment in enumerate(segments):
+        score = _count_segment_overlap(segment, candidates)
+        scored.append((segment, score, idx))
+    return scored
+
+
+def _reorder_segments(scored: List[Tuple[str, int, int]]) -> List[str]:
+    ordered = sorted(scored, key=lambda item: (-item[1], item[2]))
+    return [item[0] for item in ordered]
+
+
+def _count_segment_overlap(segment: str, candidates: List[str]) -> int:
+    tokens = tokenize(segment)
+    phrases = generate_ngrams(tokens, 3)
+    terms = set(tokens) | phrases
+    score = 0
+    for keyword in candidates:
+        if keyword in terms:
+            score += 1
+    return score
+
+
+def _extract_matching_keywords(segments: List[str], candidates: List[str]) -> List[str]:
+    matched: List[str] = []
+    for segment in segments:
+        tokens = tokenize(segment)
+        phrases = generate_ngrams(tokens, 3)
+        terms = set(tokens) | phrases
+        for keyword in candidates:
+            if keyword in terms:
+                _append_unique(matched, keyword)
+    return matched
 
 
 def _build_action_map(tailoring_plan: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:

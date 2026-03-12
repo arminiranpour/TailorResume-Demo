@@ -335,25 +335,9 @@ def _restore_skill_line_texts(
     final_resume: Dict[str, Any],
     audit_additions: Dict[str, List[str]],
 ) -> None:
-    original_map: Dict[str, str] = {}
-    for line_id, text in _iter_skill_lines(original_resume_json):
-        if line_id not in original_map:
-            original_map[line_id] = text
-
-    skills = final_resume.get("skills") if isinstance(final_resume.get("skills"), dict) else None
-    if skills is None:
-        return
-    lines = skills.get("lines") if isinstance(skills.get("lines"), list) else []
-    for line in lines:
-        if not isinstance(line, dict):
-            continue
-        line_id = line.get("line_id")
-        if not isinstance(line_id, str):
-            continue
-        original_text = original_map.get(line_id)
-        if isinstance(original_text, str) and line.get("text") != original_text:
-            line["text"] = original_text
-            _append_unique(audit_additions["fallbacks"], line_id)
+    # Preserve skills line order and IDs; allow text changes to pass through.
+    _ = original_resume_json, final_resume, audit_additions
+    return
 
 
 def _enforce_summary_budget(

@@ -25,6 +25,7 @@ from app.pipelines.budget_enforcement import BudgetEnforcementError, enforce_bud
 from app.docx_engine.editor import apply_tailored_text_to_docx
 from app.docx_engine.mapping import build_docx_mapping
 from app.docx_engine.types import DocxReplacementError
+from app.utils.debug_report import print_tailoring_debug_report
 from shared.scoring import decide
 from app.schemas.schema_loader import load_schema
 
@@ -321,6 +322,12 @@ def rewrite_bullets(
             status_code=500,
             content={"error": "bullet_rewrite_failed", "detail": str(exc)},
         )
+    print_tailoring_debug_report(
+        job_json=payload.job_json,
+        resume_json=payload.resume_json,
+        tailored_resume_json=tailored_resume_json,
+        score_result=payload.score_result,
+    )
     return JSONResponse(
         status_code=200,
         content={"tailored_resume_json": tailored_resume_json, "audit_log": audit_log},

@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from app.config import get_config
+from app.pipelines.allowed_vocab import build_allowed_vocab
 from app.pipelines.repair import repair_json_to_schema
 from app.prompts.loader import load_system_prompt
 from app.providers.base import LLMProvider
 from app.schemas.validator import validate_json
 from app.security.untrusted import build_llm_messages
+from shared.scoring.normalize import generate_ngrams, normalize_text, tokenize
 
 
 @dataclass
@@ -77,6 +80,8 @@ def generate_tailoring_plan(
         score_result,
         _preview_raw(json.dumps(obj, ensure_ascii=True)),
     )
+
+    plan = _ensure_actionable_rewrites(plan, resume_json, job_json)
 
     ok, errors = validate_json("tailoring_plan", plan)
     if not ok:
@@ -360,3 +365,371 @@ def _preview_raw(raw: str) -> str:
     if raw is None:
         return ""
     return raw[:500]
+
+
+_REWRITE_KEEP = {"keep", "skip", "none"}
+_MAX_AUTO_REWRITES = 6
+_MAX_TARGET_KEYWORDS = 3
+_TRAILING_PERIODS = "."
+
+
+def _ensure_actionable_rewrites(
+    plan: Dict[str, Any],
+    resume_json: Dict[str, Any],
+    job_json: Dict[str, Any],
+) -> Dict[str, Any]:
+    actions = plan.get("bullet_actions")
+    if not isinstance(actions, list):
+        return plan
+
+    allowed_vocab = build_allowed_vocab(resume_json)
+    candidate_keywords = _collect_candidate_keywords(plan, job_json, allowed_vocab)
+    if not candidate_keywords:
+        return plan
+
+    bullet_map = _build_bullet_text_map(resume_json)
+    actionable_count = 0
+    total_bullets = len(actions)
+    for item in actions:
+        if not isinstance(item, dict):
+            continue
+        if _is_rewrite_intent(item.get("rewrite_intent")) and _has_target_keywords(item):
+            actionable_count += 1
+
+    scored_bullets = _score_bullets(bullet_map, candidate_keywords)
+    order_map = _build_action_order(actions)
+    desired_count = _determine_rewrite_target(scored_bullets, total_bullets)
+    auto_rewrites_used = 0
+    for item in actions:
+        if not isinstance(item, dict):
+            continue
+        bullet_id = item.get("bullet_id")
+        if not isinstance(bullet_id, str):
+            continue
+        bullet_text = bullet_map.get(bullet_id, "")
+        if not bullet_text:
+            continue
+
+        rewrite_intent = item.get("rewrite_intent")
+        if _is_rewrite_intent(rewrite_intent):
+            if not _has_target_keywords(item):
+                selected = _select_targets_for_bullet(bullet_text, candidate_keywords)
+                if selected:
+                    item["target_keywords"] = selected
+                else:
+                    item["rewrite_intent"] = "keep"
+                    item["target_keywords"] = []
+            continue
+
+    if actionable_count < desired_count:
+        for bullet_id in _ranked_bullets(scored_bullets, order_map):
+            if actionable_count >= desired_count or auto_rewrites_used >= _MAX_AUTO_REWRITES:
+                break
+            action = _find_action(actions, bullet_id)
+            if action is None:
+                continue
+            if _is_rewrite_intent(action.get("rewrite_intent")) and _has_target_keywords(action):
+                continue
+            bullet_text = bullet_map.get(bullet_id, "")
+            if not bullet_text:
+                continue
+            selected = _select_targets_for_bullet(bullet_text, candidate_keywords)
+            if not selected:
+                continue
+            action["rewrite_intent"] = "rewrite"
+            action["target_keywords"] = selected
+            actionable_count += 1
+            auto_rewrites_used += 1
+
+    _maybe_enable_summary_rewrite(plan, resume_json, candidate_keywords)
+    _ensure_skills_reorder_plan(plan, resume_json, candidate_keywords)
+
+    return plan
+
+
+def _maybe_enable_summary_rewrite(
+    plan: Dict[str, Any],
+    resume_json: Dict[str, Any],
+    candidate_keywords: List[str],
+) -> None:
+    summary = resume_json.get("summary") if isinstance(resume_json.get("summary"), dict) else None
+    if summary is None:
+        return
+    summary_text = summary.get("text")
+    if not isinstance(summary_text, str) or not summary_text.strip():
+        return
+    summary_targets = _select_targets_for_bullet(summary_text, candidate_keywords)
+    if not summary_targets:
+        return
+    summary_plan = plan.get("summary_rewrite")
+    if isinstance(summary_plan, dict):
+        intent = summary_plan.get("rewrite_intent")
+        if isinstance(intent, str) and intent.strip().lower() in _REWRITE_KEEP:
+            return
+        if _has_target_keywords(summary_plan):
+            return
+        summary_plan["rewrite_intent"] = summary_plan.get("rewrite_intent") or "rewrite"
+        summary_plan["target_keywords"] = summary_targets
+        return
+    plan["summary_rewrite"] = {
+        "rewrite_intent": "rewrite",
+        "target_keywords": summary_targets,
+    }
+
+
+def _ensure_skills_reorder_plan(
+    plan: Dict[str, Any],
+    resume_json: Dict[str, Any],
+    candidate_keywords: List[str],
+) -> None:
+    if not candidate_keywords:
+        return
+    skills = resume_json.get("skills") if isinstance(resume_json.get("skills"), dict) else None
+    if skills is None:
+        return
+    lines = skills.get("lines") if isinstance(skills.get("lines"), list) else []
+    if not lines:
+        return
+    line_map, order = _build_skills_line_map(lines)
+    scores = _score_skill_lines(line_map, candidate_keywords, order)
+    reordered = [line_id for line_id, _ in scores if line_id in order]
+    if reordered == order:
+        return
+    plan["skills_reorder_plan"] = reordered
+
+
+def _collect_candidate_keywords(
+    plan: Dict[str, Any],
+    job_json: Dict[str, Any],
+    allowed_vocab: Dict[str, Any],
+) -> List[str]:
+    allowed_terms = allowed_vocab.get("terms", set())
+    allowed_proper = allowed_vocab.get("proper_nouns", set())
+
+    candidates: List[str] = []
+    prioritized = plan.get("prioritized_keywords") if isinstance(plan.get("prioritized_keywords"), list) else []
+    for keyword in prioritized:
+        normalized = _normalize_candidate(keyword)
+        if not normalized:
+            continue
+        if normalized in allowed_terms or normalized in allowed_proper:
+            _append_unique(candidates, normalized)
+
+    for text in _iter_job_texts(job_json):
+        for term in _extract_job_terms(text):
+            if term in allowed_terms or term in allowed_proper:
+                _append_unique(candidates, term)
+        if len(candidates) >= 50:
+            break
+    return candidates
+
+
+def _iter_job_texts(job_json: Dict[str, Any]) -> List[str]:
+    texts: List[str] = []
+    title = job_json.get("title")
+    if isinstance(title, str):
+        texts.append(title)
+    keywords = job_json.get("keywords")
+    if isinstance(keywords, list):
+        texts.extend([kw for kw in keywords if isinstance(kw, str)])
+    responsibilities = job_json.get("responsibilities")
+    if isinstance(responsibilities, list):
+        texts.extend([item for item in responsibilities if isinstance(item, str)])
+    for field in ("must_have", "nice_to_have"):
+        items = job_json.get(field)
+        if isinstance(items, list):
+            for item in items:
+                if isinstance(item, dict) and isinstance(item.get("text"), str):
+                    texts.append(item["text"])
+    return texts
+
+
+def _extract_job_terms(text: str) -> List[str]:
+    tokens = _clean_tokens(tokenize(text))
+    ordered: List[str] = []
+    for token in tokens:
+        _append_unique(ordered, token)
+    for phrase in _ordered_ngrams(tokens, 3):
+        _append_unique(ordered, phrase)
+    return ordered
+
+
+def _normalize_candidate(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    return normalize_text(value)
+
+
+def _build_bullet_text_map(resume_json: Dict[str, Any]) -> Dict[str, str]:
+    mapping: Dict[str, str] = {}
+    experience = resume_json.get("experience") if isinstance(resume_json.get("experience"), list) else []
+    for exp in experience:
+        if not isinstance(exp, dict):
+            continue
+        bullets = exp.get("bullets") if isinstance(exp.get("bullets"), list) else []
+        for bullet in bullets:
+            if not isinstance(bullet, dict):
+                continue
+            bullet_id = bullet.get("bullet_id")
+            text = bullet.get("text")
+            if isinstance(bullet_id, str) and isinstance(text, str) and bullet_id not in mapping:
+                mapping[bullet_id] = text
+    projects = resume_json.get("projects") if isinstance(resume_json.get("projects"), list) else []
+    for proj in projects:
+        if not isinstance(proj, dict):
+            continue
+        bullets = proj.get("bullets") if isinstance(proj.get("bullets"), list) else []
+        for bullet in bullets:
+            if not isinstance(bullet, dict):
+                continue
+            bullet_id = bullet.get("bullet_id")
+            text = bullet.get("text")
+            if isinstance(bullet_id, str) and isinstance(text, str) and bullet_id not in mapping:
+                mapping[bullet_id] = text
+    return mapping
+
+
+def _select_targets_for_bullet(text: str, candidate_keywords: List[str]) -> List[str]:
+    tokens = _clean_tokens(tokenize(text))
+    phrases = generate_ngrams(tokens, 3)
+    bullet_terms = set(tokens) | phrases
+    selected: List[str] = []
+    for term in candidate_keywords:
+        if term in bullet_terms:
+            _append_unique(selected, term)
+            if len(selected) >= _MAX_TARGET_KEYWORDS:
+                break
+    return selected
+
+
+def _is_rewrite_intent(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    return value.strip().lower() not in _REWRITE_KEEP
+
+
+def _has_target_keywords(action: Dict[str, Any]) -> bool:
+    targets = action.get("target_keywords") if isinstance(action.get("target_keywords"), list) else []
+    return bool(targets)
+
+
+def _append_unique(values: List[str], item: str) -> None:
+    if item not in values:
+        values.append(item)
+
+
+def _score_bullets(
+    bullet_map: Dict[str, str],
+    candidate_keywords: List[str],
+) -> List[Tuple[str, int]]:
+    scores: List[Tuple[str, int]] = []
+    for bullet_id, text in bullet_map.items():
+        score = _count_keyword_overlap(text, candidate_keywords)
+        if score > 0:
+            scores.append((bullet_id, score))
+    return scores
+
+
+def _ranked_bullets(scored: List[Tuple[str, int]], order_map: Dict[str, int]) -> List[str]:
+    return [
+        bullet_id
+        for bullet_id, _ in sorted(scored, key=lambda item: (-item[1], order_map.get(item[0], 0)))
+    ]
+
+
+def _determine_rewrite_target(scored: List[Tuple[str, int]], total_bullets: int) -> int:
+    eligible = len(scored)
+    if eligible <= 0:
+        return 0
+    baseline = max(2, int(math.ceil(eligible * 0.6)))
+    cap = min(_MAX_AUTO_REWRITES, eligible)
+    target = min(baseline, cap)
+    if total_bullets > 0:
+        target = min(target, total_bullets)
+    return target
+
+
+def _count_keyword_overlap(text: str, candidate_keywords: List[str]) -> int:
+    if not text or not candidate_keywords:
+        return 0
+    tokens = _clean_tokens(tokenize(text))
+    phrases = generate_ngrams(tokens, 3)
+    terms = set(tokens) | phrases
+    count = 0
+    for keyword in candidate_keywords:
+        if keyword in terms:
+            count += 1
+    return count
+
+
+def _find_action(actions: List[Any], bullet_id: str) -> Optional[Dict[str, Any]]:
+    for item in actions:
+        if isinstance(item, dict) and item.get("bullet_id") == bullet_id:
+            return item
+    return None
+
+
+def _build_action_order(actions: List[Any]) -> Dict[str, int]:
+    order: Dict[str, int] = {}
+    for idx, item in enumerate(actions):
+        if not isinstance(item, dict):
+            continue
+        bullet_id = item.get("bullet_id")
+        if isinstance(bullet_id, str) and bullet_id not in order:
+            order[bullet_id] = idx
+    return order
+
+
+def _ordered_ngrams(tokens: List[str], max_n: int) -> List[str]:
+    ordered: List[str] = []
+    if not tokens or max_n < 2:
+        return ordered
+    n_max = min(max_n, len(tokens))
+    for n in range(2, n_max + 1):
+        for i in range(0, len(tokens) - n + 1):
+            ordered.append(" ".join(tokens[i : i + n]))
+    return ordered
+
+
+def _clean_tokens(tokens: List[str]) -> List[str]:
+    cleaned: List[str] = []
+    for token in tokens:
+        stripped = _strip_trailing_periods(token)
+        if stripped:
+            cleaned.append(stripped)
+    return cleaned
+
+
+def _strip_trailing_periods(token: str) -> str:
+    if not token:
+        return token
+    return token.rstrip(_TRAILING_PERIODS)
+
+
+def _build_skills_line_map(lines: List[Any]) -> Tuple[Dict[str, str], List[str]]:
+    mapping: Dict[str, str] = {}
+    order: List[str] = []
+    for line in lines:
+        if not isinstance(line, dict):
+            continue
+        line_id = line.get("line_id")
+        text = line.get("text")
+        if isinstance(line_id, str):
+            order.append(line_id)
+            if isinstance(text, str):
+                mapping[line_id] = text
+    return mapping, order
+
+
+def _score_skill_lines(
+    line_map: Dict[str, str],
+    candidate_keywords: List[str],
+    order: List[str],
+) -> List[Tuple[str, int]]:
+    scored: List[Tuple[str, int]] = []
+    index_map = {line_id: idx for idx, line_id in enumerate(order)}
+    for line_id in order:
+        text = line_map.get(line_id, "")
+        score = _count_keyword_overlap(text, candidate_keywords)
+        scored.append((line_id, score))
+    return sorted(scored, key=lambda item: (-item[1], index_map.get(item[0], 0)))

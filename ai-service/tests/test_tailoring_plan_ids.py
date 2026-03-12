@@ -14,7 +14,7 @@ class FixedProvider(LLMProvider):
     def __init__(self, response):
         self.response = response
 
-    def generate(self, messages, *, timeout_seconds=None):
+    def generate(self, messages, *, timeout=None, **kwargs):
         return self.response
 
 
