@@ -162,6 +162,127 @@ def test_plan_autoselects_actionable_bullet():
     assert len(actionable) >= 1
 
 
+def test_plan_enables_summary_rewrite_from_resume_overlap():
+    resume = {
+        "meta": {"total_pages": 1, "structure_hash": "abc"},
+        "summary": {"id": "summary", "text": "Backend engineer."},
+        "skills": {"id": "skills", "lines": [{"line_id": "skills_1", "text": "Python"}]},
+        "experience": [
+            {
+                "exp_id": "exp_1",
+                "company": "Acme",
+                "title": "Dev",
+                "start_date": "2020",
+                "end_date": "2021",
+                "bullets": [
+                    {
+                        "bullet_id": "exp_1_b1",
+                        "bullet_index": 0,
+                        "text": "Built FastAPI services.",
+                        "char_count": 24,
+                    }
+                ],
+            }
+        ],
+        "projects": [],
+        "education": [
+            {
+                "edu_id": "edu_1",
+                "school": "Uni",
+                "degree": "BS",
+                "start_date": "2016",
+                "end_date": "2020",
+            }
+        ],
+    }
+    job = {
+        "must_have": [{"requirement_id": "req_fastapi", "text": "FastAPI"}],
+        "nice_to_have": [],
+        "responsibilities": ["Build APIs"],
+        "keywords": ["Backend"],
+    }
+    score_result = {
+        "decision": "PROCEED",
+        "reasons": [],
+        "matched_requirements": [],
+        "missing_requirements": [],
+        "must_have_coverage_percent": 100,
+    }
+    plan = {
+        "bullet_actions": [
+            {"bullet_id": "exp_1_b1", "rewrite_intent": "keep", "target_keywords": []},
+        ],
+        "missing_requirements": [],
+        "prioritized_keywords": [],
+    }
+    provider = FixedProvider(json.dumps(plan))
+    result = generate_tailoring_plan(resume, job, score_result, provider)
+    summary_plan = result.get("summary_rewrite")
+    assert isinstance(summary_plan, dict)
+    assert summary_plan.get("rewrite_intent") == "rewrite"
+    assert "fastapi" in [kw.lower() for kw in summary_plan.get("target_keywords", [])]
+
+
+def test_plan_always_enables_summary_rewrite_when_summary_exists():
+    resume = {
+        "meta": {"total_pages": 1, "structure_hash": "abc"},
+        "summary": {"id": "summary", "text": "Backend engineer."},
+        "skills": {"id": "skills", "lines": [{"line_id": "skills_1", "text": "Python"}]},
+        "experience": [
+            {
+                "exp_id": "exp_1",
+                "company": "Acme",
+                "title": "Dev",
+                "start_date": "2020",
+                "end_date": "2021",
+                "bullets": [
+                    {
+                        "bullet_id": "exp_1_b1",
+                        "bullet_index": 0,
+                        "text": "Built APIs.",
+                        "char_count": 11,
+                    }
+                ],
+            }
+        ],
+        "projects": [],
+        "education": [
+            {
+                "edu_id": "edu_1",
+                "school": "Uni",
+                "degree": "BS",
+                "start_date": "2016",
+                "end_date": "2020",
+            }
+        ],
+    }
+    job = {
+        "must_have": [{"requirement_id": "req_rust", "text": "Rust"}],
+        "nice_to_have": [],
+        "responsibilities": ["Build systems"],
+        "keywords": ["Infrastructure"],
+    }
+    score_result = {
+        "decision": "PROCEED",
+        "reasons": [],
+        "matched_requirements": [],
+        "missing_requirements": [],
+        "must_have_coverage_percent": 0,
+    }
+    plan = {
+        "bullet_actions": [
+            {"bullet_id": "exp_1_b1", "rewrite_intent": "keep", "target_keywords": []},
+        ],
+        "missing_requirements": [],
+        "prioritized_keywords": [],
+    }
+    provider = FixedProvider(json.dumps(plan))
+    result = generate_tailoring_plan(resume, job, score_result, provider)
+    summary_plan = result.get("summary_rewrite")
+    assert isinstance(summary_plan, dict)
+    assert summary_plan.get("rewrite_intent") == "rewrite"
+
+
 def test_plan_autoselects_multiple_bullets_across_experiences():
     resume = {
         "meta": {"total_pages": 1, "structure_hash": "abc"},

@@ -22,6 +22,22 @@ class DummyProvider(LLMProvider):
         )
 
 
+class SummaryProvider(LLMProvider):
+    def __init__(self, summary_text):
+        self.summary_text = summary_text
+
+    def generate(self, messages, *, timeout=None, **kwargs):
+        system_prompt = messages[0]["content"]
+        if "resume summary rewrite engine" in system_prompt:
+            return json.dumps(
+                {
+                    "rewritten_text": self.summary_text,
+                    "keywords_used": [],
+                }
+            )
+        raise RuntimeError("Unexpected prompt")
+
+
 def sample_resume():
     return {
         "meta": {"total_pages": 1, "structure_hash": "abc"},
@@ -104,3 +120,72 @@ def test_rewrite_changes_text_and_preserves_structure():
     assert [b["bullet_id"] for b in tailored["experience"][0]["bullets"]] == [
         b["bullet_id"] for b in resume["experience"][0]["bullets"]
     ]
+
+
+def test_summary_rewrite_changes_text():
+    resume = sample_resume()
+    resume["summary"]["text"] = "Backend engineer focused on APIs and systems."
+    plan = {
+        "bullet_actions": [
+            {"bullet_id": "exp_1_b1", "rewrite_intent": "keep", "target_keywords": []},
+        ],
+        "missing_requirements": [],
+        "prioritized_keywords": [],
+        "summary_rewrite": {"rewrite_intent": "rewrite", "target_keywords": ["apis"]},
+    }
+    tailored, audit_log = rewrite_resume_text_with_audit(
+        resume,
+        sample_job(),
+        sample_score(),
+        plan,
+        SummaryProvider("Focused on APIs and systems, backend engineer."),
+    )
+    assert tailored["summary"]["text"] != resume["summary"]["text"]
+    assert audit_log["summary_detail"]["changed"] is True
+    assert audit_log["summary_detail"]["fallback_used"] is False
+
+
+def test_summary_fallback_when_identical():
+    resume = sample_resume()
+    resume["summary"]["text"] = "Backend engineer, focused on APIs."
+    plan = {
+        "bullet_actions": [
+            {"bullet_id": "exp_1_b1", "rewrite_intent": "keep", "target_keywords": []},
+        ],
+        "missing_requirements": [],
+        "prioritized_keywords": [],
+        "summary_rewrite": {"rewrite_intent": "rewrite", "target_keywords": ["apis"]},
+    }
+    tailored, audit_log = rewrite_resume_text_with_audit(
+        resume,
+        sample_job(),
+        sample_score(),
+        plan,
+        SummaryProvider(resume["summary"]["text"]),
+    )
+    assert tailored["summary"]["text"] != resume["summary"]["text"]
+    assert audit_log["summary_detail"]["fallback_used"] is True
+    assert audit_log["summary_detail"]["changed"] is True
+
+
+def test_summary_rewrite_rejects_unsupported_terms():
+    resume = sample_resume()
+    resume["summary"]["text"] = "Backend engineer, focused on APIs."
+    plan = {
+        "bullet_actions": [
+            {"bullet_id": "exp_1_b1", "rewrite_intent": "keep", "target_keywords": []},
+        ],
+        "missing_requirements": [],
+        "prioritized_keywords": [],
+        "summary_rewrite": {"rewrite_intent": "rewrite", "target_keywords": ["apis"]},
+    }
+    tailored, audit_log = rewrite_resume_text_with_audit(
+        resume,
+        sample_job(),
+        sample_score(),
+        plan,
+        SummaryProvider("Backend engineer with Kubernetes experience."),
+    )
+    assert "Kubernetes" not in tailored["summary"]["text"]
+    assert audit_log["summary_detail"]["fallback_used"] is True
+    assert audit_log["summary_detail"]["changed"] is True

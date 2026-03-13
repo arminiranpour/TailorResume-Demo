@@ -147,3 +147,77 @@ def test_multiple_bullets_and_skills_tailored():
     assert len(skills_lines) == len(resume["skills"]["lines"])
     assert [line["line_id"] for line in skills_lines] == [line["line_id"] for line in resume["skills"]["lines"]]
     assert skills_lines[1]["text"].startswith("AWS")
+
+
+def test_skills_surface_hard_skill_from_resume():
+    resume = {
+        "meta": {"total_pages": 1, "structure_hash": "abc"},
+        "summary": {"id": "summary", "text": "Engineer focused on automation."},
+        "skills": {
+            "id": "skills",
+            "lines": [
+                {"line_id": "skills_1", "text": "Communication, Teamwork"},
+            ],
+        },
+        "experience": [
+            {
+                "exp_id": "exp_1",
+                "company": "Acme",
+                "title": "Dev",
+                "start_date": "2020",
+                "end_date": "2021",
+                "bullets": [
+                    {
+                        "bullet_id": "exp_1_b1",
+                        "bullet_index": 0,
+                        "text": "Automated reports with Python scripts.",
+                        "char_count": 39,
+                    }
+                ],
+            }
+        ],
+        "projects": [],
+        "education": [
+            {
+                "edu_id": "edu_1",
+                "school": "Uni",
+                "degree": "BS",
+                "start_date": "2016",
+                "end_date": "2020",
+            }
+        ],
+    }
+    job = {
+        "must_have": [{"requirement_id": "req_python", "text": "Python"}],
+        "nice_to_have": [],
+        "responsibilities": ["Automate reporting"],
+        "keywords": [],
+    }
+    score = {
+        "decision": "PROCEED",
+        "reasons": [],
+        "matched_requirements": [],
+        "missing_requirements": [],
+        "must_have_coverage_percent": 100,
+    }
+    plan = {
+        "bullet_actions": [
+            {"bullet_id": "exp_1_b1", "rewrite_intent": "keep", "target_keywords": []},
+        ],
+        "missing_requirements": [],
+        "prioritized_keywords": [],
+    }
+
+    tailored, audit_log = rewrite_resume_text_with_audit(
+        resume,
+        job,
+        score,
+        plan,
+        DummyProvider(),
+    )
+
+    skills_line = tailored["skills"]["lines"][0]["text"]
+    assert "Python" in skills_line
+    assert [line["line_id"] for line in tailored["skills"]["lines"]] == [
+        line["line_id"] for line in resume["skills"]["lines"]
+    ]

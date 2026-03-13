@@ -25,4 +25,6 @@ Selection guidance:
 - Use "keep" only when no honest improvement is possible given the bullet's existing evidence.
 - For each rewritten bullet, provide 1-3 job-relevant target_keywords that are already evidenced by that bullet or elsewhere in the resume.
 - Never include target_keywords that are not already supported by the resume.
+- If a summary exists and there is job-to-resume overlap anywhere in the resume, include summary_rewrite with evidence-backed target_keywords (even if those keywords are not already in the summary).
+- If a summary exists in a PROCEED case, always include summary_rewrite with rewrite_intent not in {"keep","skip","none"}. Use evidence-backed target_keywords when available; otherwise leave target_keywords empty for a safe minor rewrite.
 Return JSON only.

@@ -384,6 +384,7 @@ def _ensure_actionable_rewrites(
 
     allowed_vocab = build_allowed_vocab(resume_json)
     candidate_keywords = _collect_candidate_keywords(plan, job_json, allowed_vocab)
+    _maybe_enable_summary_rewrite(plan, resume_json, candidate_keywords)
     if not candidate_keywords:
         return plan
 
@@ -441,7 +442,6 @@ def _ensure_actionable_rewrites(
             actionable_count += 1
             auto_rewrites_used += 1
 
-    _maybe_enable_summary_rewrite(plan, resume_json, candidate_keywords)
     _ensure_skills_reorder_plan(plan, resume_json, candidate_keywords)
 
     return plan
@@ -458,22 +458,24 @@ def _maybe_enable_summary_rewrite(
     summary_text = summary.get("text")
     if not isinstance(summary_text, str) or not summary_text.strip():
         return
-    summary_targets = _select_targets_for_bullet(summary_text, candidate_keywords)
-    if not summary_targets:
-        return
+    summary_targets = _select_targets_for_summary(resume_json, summary_text, candidate_keywords)
+    if not summary_targets and candidate_keywords:
+        summary_targets = candidate_keywords[:_MAX_TARGET_KEYWORDS]
     summary_plan = plan.get("summary_rewrite")
     if isinstance(summary_plan, dict):
         intent = summary_plan.get("rewrite_intent")
         if isinstance(intent, str) and intent.strip().lower() in _REWRITE_KEEP:
-            return
-        if _has_target_keywords(summary_plan):
-            return
-        summary_plan["rewrite_intent"] = summary_plan.get("rewrite_intent") or "rewrite"
-        summary_plan["target_keywords"] = summary_targets
+            summary_plan["rewrite_intent"] = "rewrite"
+        if summary_targets:
+            summary_plan["target_keywords"] = summary_targets
+        elif not _has_target_keywords(summary_plan):
+            summary_plan["target_keywords"] = []
+        if not isinstance(summary_plan.get("rewrite_intent"), str) or summary_plan.get("rewrite_intent") == "":
+            summary_plan["rewrite_intent"] = "rewrite"
         return
     plan["summary_rewrite"] = {
         "rewrite_intent": "rewrite",
-        "target_keywords": summary_targets,
+        "target_keywords": summary_targets if summary_targets else [],
     }
 
 
@@ -589,6 +591,59 @@ def _build_bullet_text_map(resume_json: Dict[str, Any]) -> Dict[str, str]:
     return mapping
 
 
+def _collect_terms_from_text(text: str) -> Set[str]:
+    tokens = _clean_tokens(tokenize(text))
+    phrases = generate_ngrams(tokens, 3)
+    return set(tokens) | phrases
+
+
+def _collect_resume_terms(resume_json: Dict[str, Any]) -> Set[str]:
+    terms: Set[str] = set()
+    summary = resume_json.get("summary") if isinstance(resume_json.get("summary"), dict) else {}
+    if isinstance(summary.get("text"), str):
+        terms.update(_collect_terms_from_text(summary.get("text")))
+
+    skills = resume_json.get("skills") if isinstance(resume_json.get("skills"), dict) else {}
+    lines = skills.get("lines") if isinstance(skills.get("lines"), list) else []
+    for line in lines:
+        if isinstance(line, dict) and isinstance(line.get("text"), str):
+            terms.update(_collect_terms_from_text(line.get("text")))
+
+    experience = resume_json.get("experience") if isinstance(resume_json.get("experience"), list) else []
+    for exp in experience:
+        if not isinstance(exp, dict):
+            continue
+        for key in ("company", "title"):
+            if isinstance(exp.get(key), str):
+                terms.update(_collect_terms_from_text(exp.get(key)))
+        bullets = exp.get("bullets") if isinstance(exp.get("bullets"), list) else []
+        for bullet in bullets:
+            if isinstance(bullet, dict) and isinstance(bullet.get("text"), str):
+                terms.update(_collect_terms_from_text(bullet.get("text")))
+
+    projects = resume_json.get("projects") if isinstance(resume_json.get("projects"), list) else []
+    for proj in projects:
+        if not isinstance(proj, dict):
+            continue
+        for key in ("name", "text"):
+            if isinstance(proj.get(key), str):
+                terms.update(_collect_terms_from_text(proj.get(key)))
+        bullets = proj.get("bullets") if isinstance(proj.get("bullets"), list) else []
+        for bullet in bullets:
+            if isinstance(bullet, dict) and isinstance(bullet.get("text"), str):
+                terms.update(_collect_terms_from_text(bullet.get("text")))
+
+    education = resume_json.get("education") if isinstance(resume_json.get("education"), list) else []
+    for edu in education:
+        if not isinstance(edu, dict):
+            continue
+        for key in ("school", "degree"):
+            if isinstance(edu.get(key), str):
+                terms.update(_collect_terms_from_text(edu.get(key)))
+
+    return terms
+
+
 def _select_targets_for_bullet(text: str, candidate_keywords: List[str]) -> List[str]:
     tokens = _clean_tokens(tokenize(text))
     phrases = generate_ngrams(tokens, 3)
@@ -596,6 +651,27 @@ def _select_targets_for_bullet(text: str, candidate_keywords: List[str]) -> List
     selected: List[str] = []
     for term in candidate_keywords:
         if term in bullet_terms:
+            _append_unique(selected, term)
+            if len(selected) >= _MAX_TARGET_KEYWORDS:
+                break
+    return selected
+
+
+def _select_targets_for_summary(
+    resume_json: Dict[str, Any],
+    summary_text: str,
+    candidate_keywords: List[str],
+) -> List[str]:
+    summary_terms = _collect_terms_from_text(summary_text)
+    resume_terms = _collect_resume_terms(resume_json)
+    selected: List[str] = []
+    for term in candidate_keywords:
+        if term in summary_terms:
+            _append_unique(selected, term)
+            if len(selected) >= _MAX_TARGET_KEYWORDS:
+                return selected
+    for term in candidate_keywords:
+        if term in resume_terms:
             _append_unique(selected, term)
             if len(selected) >= _MAX_TARGET_KEYWORDS:
                 break

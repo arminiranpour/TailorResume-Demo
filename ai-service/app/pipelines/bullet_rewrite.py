@@ -4,7 +4,7 @@ import json
 import re
 import unicodedata
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from app.config import get_config
 from app.pipelines.allowed_vocab import build_allowed_vocab, normalize_terms
@@ -35,6 +35,73 @@ _REWRITE_KEEP = {"keep", "skip", "none"}
 _RAW_TOKEN_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9#.+-]*")
 _TRAILING_PERIODS = "."
 _MIN_BUDGET = 80
+
+_SOFT_SKILL_TERMS = {
+    "communication",
+    "communication skills",
+    "collaboration",
+    "collaborative",
+    "teamwork",
+    "team player",
+    "leadership",
+    "problem solving",
+    "problem-solving",
+    "customer service",
+    "time management",
+    "adaptability",
+    "organization",
+    "organizational",
+    "interpersonal",
+    "interpersonal skills",
+    "cross functional",
+    "cross-functional",
+    "stakeholder management",
+    "mentorship",
+    "coaching",
+    "initiative",
+    "ownership",
+    "strategic thinking",
+    "critical thinking",
+    "attention to detail",
+    "detail oriented",
+    "presentation",
+    "writing",
+    "verbal communication",
+    "conflict resolution",
+    "negotiation",
+    "prioritization",
+}
+
+_TECHNICAL_INDICATORS = {
+    "api",
+    "apis",
+    "backend",
+    "frontend",
+    "full stack",
+    "full-stack",
+    "database",
+    "databases",
+    "data",
+    "sql",
+    "etl",
+    "pipeline",
+    "pipelines",
+    "cloud",
+    "infrastructure",
+    "devops",
+    "ci cd",
+    "ci/cd",
+    "microservices",
+    "distributed systems",
+    "systems",
+    "architecture",
+    "security",
+    "network",
+    "performance",
+    "scalability",
+    "automation",
+    "testing",
+}
 
 
 def rewrite_resume_text(
@@ -199,6 +266,8 @@ def _rewrite_summary(
         "skip_reason": None,
         "reject_reason": None,
         "changed": False,
+        "fallback_used": False,
+        "fallback_reason": None,
     }
     summary_plan = tailoring_plan.get("summary_rewrite")
     if not isinstance(summary_plan, dict):
@@ -208,15 +277,7 @@ def _rewrite_summary(
     rewrite_intent = summary_plan.get("rewrite_intent")
     if isinstance(rewrite_intent, str):
         summary_detail["rewrite_intent"] = rewrite_intent
-    if isinstance(rewrite_intent, str) and rewrite_intent.strip().lower() in _REWRITE_KEEP:
-        summary_detail["skip_reason"] = "rewrite_intent_keep"
-        audit_log["summary_detail"] = summary_detail
-        return
     target_keywords = summary_plan.get("target_keywords") if isinstance(summary_plan.get("target_keywords"), list) else []
-    if not target_keywords:
-        summary_detail["skip_reason"] = "empty_target_keywords"
-        audit_log["summary_detail"] = summary_detail
-        return
 
     summary = tailored.get("summary") if isinstance(tailored.get("summary"), dict) else None
     if summary is None:
@@ -232,19 +293,33 @@ def _rewrite_summary(
     summary_detail["target_keywords"] = list(target_keywords)
 
     budget = budgets.get("summary")
-    rewritten_text = _call_summary_rewrite(
+    rewritten_text, reject_reason = _call_summary_rewrite(
         original_text,
         job_json,
         target_keywords,
         allowed_vocab,
         provider,
         budget,
+        force_change=True,
     )
+    summary_detail["candidate_text"] = rewritten_text
+    if reject_reason:
+        summary_detail["reject_reason"] = reject_reason
+    if _needs_summary_fallback(original_text, rewritten_text, reject_reason):
+        summary_detail["fallback_used"] = True
+        summary_detail["fallback_reason"] = _fallback_reason(original_text, rewritten_text, reject_reason)
+        fallback_text = _fallback_summary_rewrite(original_text)
+        if fallback_text is None or _is_effectively_same(original_text, fallback_text):
+            summary_detail["skip_reason"] = "fallback_failed"
+            audit_log["summary_detail"] = summary_detail
+            return
+        rewritten_text = fallback_text
+        summary_detail["candidate_text"] = rewritten_text
+
     if rewritten_text is None:
         summary_detail["skip_reason"] = "llm_no_rewrite_or_rejected"
         audit_log["summary_detail"] = summary_detail
         return
-    summary_detail["candidate_text"] = rewritten_text
     if budget is not None and len(rewritten_text) > budget:
         compressed = _compress_text(original_text, rewritten_text, budget, provider)
         if compressed is not None:
@@ -257,6 +332,10 @@ def _rewrite_summary(
                 return
         if budget is not None and len(rewritten_text) > budget:
             rewritten_text = _truncate_to_budget(rewritten_text, budget)
+    if _is_effectively_same(original_text, rewritten_text):
+        summary_detail["skip_reason"] = "final_identical"
+        audit_log["summary_detail"] = summary_detail
+        return
     summary["text"] = rewritten_text
     summary_detail["final_text"] = rewritten_text
     summary_detail["changed"] = rewritten_text != original_text
@@ -270,7 +349,8 @@ def _call_summary_rewrite(
     allowed_vocab: Dict[str, Any],
     provider: LLMProvider,
     budget: Optional[int],
-) -> Optional[str]:
+    force_change: bool = False,
+) -> Tuple[Optional[str], Optional[str]]:
     allowed_terms = allowed_vocab.get("terms", set())
     allowed_proper = allowed_vocab.get("proper_nouns", set())
     allowed_target, missing_target = _split_target_keywords(target_keywords, allowed_terms)
@@ -282,6 +362,7 @@ def _call_summary_rewrite(
         "missing_target_keywords": missing_target,
         "allowed_terms": _select_allowed_terms(allowed_terms, original_text, target_keywords),
         "allowed_proper_nouns": _select_allowed_proper_nouns(allowed_proper, original_text),
+        "force_change": force_change,
     }
     if budget is not None:
         payload["max_chars"] = budget
@@ -292,10 +373,10 @@ def _call_summary_rewrite(
     raw = provider.generate(messages, timeout=config.llm_timeout_seconds)
     obj = _parse_llm_json(raw, "summary_rewrite", provider)
     if obj is None:
-        return None
+        return None, "invalid_response"
     rewritten_text = obj.get("rewritten_text")
     if not isinstance(rewritten_text, str):
-        return None
+        return None, "invalid_text"
 
     disallowed = _find_disallowed_terms(rewritten_text, allowed_vocab, target_keywords)
     if disallowed:
@@ -310,9 +391,9 @@ def _call_summary_rewrite(
             rewritten_text = obj_retry["rewritten_text"]
             disallowed = _find_disallowed_terms(rewritten_text, allowed_vocab, target_keywords)
         if disallowed:
-            return None
+            return None, "disallowed_terms"
 
-    return rewritten_text
+    return rewritten_text, None
 
 
 def _reorder_skills(tailored: Dict[str, Any], tailoring_plan: Dict[str, Any]) -> None:
@@ -357,6 +438,26 @@ def _tailor_skill_lines(
             )
         return
 
+    resume_texts = list(_iter_resume_texts(tailored))
+    resume_normalized = normalize_text(" ".join(resume_texts))
+    soft_skill_terms = set(_SOFT_SKILL_TERMS)
+    hard_skill_terms, hard_skill_display = _build_resume_hard_skill_inventory(
+        tailored,
+        candidates,
+        resume_texts,
+        soft_skill_terms,
+        resume_normalized,
+    )
+
+    matched_hard_terms = _collect_matched_hard_terms(candidates, hard_skill_terms)
+    matched_soft_terms = _collect_matched_soft_terms(candidates, soft_skill_terms, resume_normalized)
+
+    existing_skill_terms = _collect_existing_skill_terms(lines)
+    missing_hard_terms = [
+        term for term in matched_hard_terms if term not in existing_skill_terms and term in hard_skill_display
+    ]
+
+    line_states: List[Dict[str, Any]] = []
     for line in lines:
         if not isinstance(line, dict):
             continue
@@ -364,6 +465,31 @@ def _tailor_skill_lines(
         original_text = line.get("text")
         if not isinstance(line_id, str) or not isinstance(original_text, str):
             continue
+        segments, separator = _split_skills_line(original_text)
+        if len(segments) <= 1:
+            audit_log["skills_details"].append(
+                {
+                    "line_id": line_id,
+                    "original_text": original_text,
+                    "target_keywords": [],
+                    "final_text": original_text,
+                    "changed": False,
+                    "skip_reason": "single_segment",
+                }
+            )
+            line_states.append(
+                {
+                    "line": line,
+                    "line_id": line_id,
+                    "original_text": original_text,
+                    "segments": segments,
+                    "separator": separator,
+                    "classifications": [_classify_skill_segment(seg, hard_skill_terms, soft_skill_terms) for seg in segments],
+                    "budget": len(original_text),
+                }
+            )
+            continue
+
         detail = {
             "line_id": line_id,
             "original_text": original_text,
@@ -372,23 +498,38 @@ def _tailor_skill_lines(
             "changed": False,
             "skip_reason": None,
         }
-        segments, separator = _split_skills_line(original_text)
-        if len(segments) <= 1:
-            detail["skip_reason"] = "single_segment"
-            audit_log["skills_details"].append(detail)
-            continue
-        scored = _score_skill_segments(segments, candidates)
-        reordered = _reorder_segments(scored)
+        classifications = [_classify_skill_segment(seg, hard_skill_terms, soft_skill_terms) for seg in segments]
+        reordered = _reorder_skill_segments(
+            segments,
+            classifications,
+            matched_hard_terms,
+            matched_soft_terms,
+        )
         if reordered == segments:
             detail["skip_reason"] = "no_reorder_needed"
-            audit_log["skills_details"].append(detail)
-            continue
-        detail["target_keywords"] = _extract_matching_keywords(reordered, candidates)
+        else:
+            detail["target_keywords"] = _extract_matching_keywords(reordered, candidates)
         new_text = separator.join(reordered)
         line["text"] = new_text
         detail["final_text"] = new_text
         detail["changed"] = new_text != original_text
         audit_log["skills_details"].append(detail)
+        line_states.append(
+            {
+                "line": line,
+                "line_id": line_id,
+                "original_text": original_text,
+                "segments": reordered,
+                "separator": separator,
+                "classifications": [
+                    _classify_skill_segment(seg, hard_skill_terms, soft_skill_terms) for seg in reordered
+                ],
+                "budget": len(original_text),
+            }
+        )
+
+    if missing_hard_terms:
+        _surface_missing_hard_skills(line_states, missing_hard_terms, hard_skill_display, soft_skill_terms, audit_log)
 
 
 def _rewrite_bullets(
@@ -686,7 +827,7 @@ def _find_disallowed_terms(
         if not isinstance(keyword, str):
             continue
         kw_norm = normalize_text(keyword)
-        if not kw_norm or kw_norm in allowed_terms:
+        if not kw_norm or kw_norm in allowed_terms or kw_norm in allowed_proper:
             continue
         if _contains_phrase(normalized_text, kw_norm):
             disallowed.add(kw_norm)
@@ -775,6 +916,147 @@ def _truncate_to_budget(text: str, max_chars: int) -> str:
     if last_space > 0:
         truncated = truncated[:last_space].rstrip()
     return truncated
+
+
+def _is_effectively_same(original_text: str, candidate_text: Optional[str]) -> bool:
+    if not candidate_text:
+        return True
+    return normalize_text(original_text) == normalize_text(candidate_text)
+
+
+def _needs_summary_fallback(
+    original_text: str,
+    candidate_text: Optional[str],
+    reject_reason: Optional[str],
+) -> bool:
+    if reject_reason:
+        return True
+    if not candidate_text or not candidate_text.strip():
+        return True
+    if _is_effectively_same(original_text, candidate_text):
+        return True
+    return False
+
+
+def _fallback_reason(
+    original_text: str,
+    candidate_text: Optional[str],
+    reject_reason: Optional[str],
+) -> str:
+    if reject_reason:
+        return reject_reason
+    if not candidate_text or not candidate_text.strip():
+        return "empty_or_invalid"
+    if _is_effectively_same(original_text, candidate_text):
+        return "identical_to_original"
+    return "unknown"
+
+
+def _fallback_summary_rewrite(original_text: str) -> Optional[str]:
+    stripped = original_text.strip()
+    if not stripped:
+        return None
+    clauses, joiner, suffix = _split_summary_clauses(stripped)
+    if len(clauses) >= 2:
+        reordered = [clauses[-1]] + clauses[:-1]
+        candidate = joiner.join(reordered).strip()
+        if suffix:
+            candidate = candidate.rstrip() + suffix
+        if not _is_effectively_same(original_text, candidate):
+            return candidate
+    swapped = _swap_conjunction_phrases(stripped, " and ")
+    if swapped and not _is_effectively_same(original_text, swapped):
+        return swapped
+    pivoted = _rephrase_by_pivot(
+        stripped,
+        [
+            "focused on",
+            "specializing in",
+            "experienced in",
+            "expertise in",
+            "skilled in",
+            "proficient in",
+        ],
+    )
+    if pivoted and not _is_effectively_same(original_text, pivoted):
+        return pivoted
+    rotated = _rotate_summary_tokens(stripped)
+    if rotated and not _is_effectively_same(original_text, rotated):
+        return rotated
+    return None
+
+
+def _split_summary_clauses(text: str) -> Tuple[List[str], str, str]:
+    core, suffix = _strip_summary_suffix(text)
+    separators = ["; ", " | ", " / ", " - ", " — ", ": ", ", "]
+    for sep in separators:
+        if sep in core:
+            parts = [part.strip() for part in core.split(sep) if part.strip()]
+            if len(parts) >= 2:
+                return parts, sep, suffix
+    for sep in [";", ",", ":"]:
+        if sep in core:
+            parts = [part.strip() for part in core.split(sep) if part.strip()]
+            if len(parts) >= 2:
+                return parts, f"{sep} ", suffix
+    return [core], " ", suffix
+
+
+def _strip_summary_suffix(text: str) -> Tuple[str, str]:
+    stripped = text.strip()
+    if stripped and stripped[-1] in ".!?":
+        return stripped[:-1].rstrip(), stripped[-1]
+    return stripped, ""
+
+
+def _swap_conjunction_phrases(text: str, conjunction: str) -> Optional[str]:
+    lower = text.lower()
+    conj_lower = conjunction.lower()
+    idx = lower.find(conj_lower)
+    if idx == -1:
+        return None
+    before = text[:idx].strip()
+    after = text[idx + len(conjunction) :].strip()
+    after_core, suffix = _strip_summary_suffix(after)
+    if not before or not after_core:
+        return None
+    candidate = f"{after_core}{conjunction}{before}".strip()
+    if suffix:
+        candidate = candidate.rstrip() + suffix
+    return candidate
+
+
+def _rephrase_by_pivot(text: str, pivots: Sequence[str]) -> Optional[str]:
+    lower = text.lower()
+    for pivot in pivots:
+        marker = f" {pivot} "
+        idx = lower.find(marker)
+        if idx == -1:
+            continue
+        before = text[:idx].strip()
+        after = text[idx + len(marker) :].strip()
+        after_core, suffix = _strip_summary_suffix(after)
+        if not before or not after_core:
+            continue
+        candidate = f"{pivot.capitalize()} {after_core}, {before}".strip()
+        if suffix:
+            candidate = candidate.rstrip() + suffix
+        return candidate
+    return None
+
+
+def _rotate_summary_tokens(text: str) -> Optional[str]:
+    core, suffix = _strip_summary_suffix(text)
+    tokens = [tok for tok in core.split() if tok]
+    if len(tokens) < 2:
+        return None
+    rotated = [tokens[-1]] + tokens[:-1]
+    if tokens[0][:1].isupper():
+        rotated[0] = rotated[0][:1].upper() + rotated[0][1:]
+    candidate = " ".join(rotated).strip()
+    if suffix:
+        candidate = candidate.rstrip() + suffix
+    return candidate
 
 
 def _append_unique(items: List[str], value: str) -> None:
@@ -867,6 +1149,377 @@ def _split_skills_line(text: str) -> Tuple[List[str], str]:
         parts = [part.strip() for part in text.split(",") if part.strip() != ""]
         return parts, ", "
     return [text.strip()], ", "
+
+
+def _iter_resume_texts(resume_json: Dict[str, Any]) -> Iterable[str]:
+    summary = resume_json.get("summary") if isinstance(resume_json.get("summary"), dict) else {}
+    if isinstance(summary.get("text"), str):
+        yield summary.get("text")
+
+    skills = resume_json.get("skills") if isinstance(resume_json.get("skills"), dict) else {}
+    lines = skills.get("lines") if isinstance(skills.get("lines"), list) else []
+    for line in lines:
+        if isinstance(line, dict) and isinstance(line.get("text"), str):
+            yield line.get("text")
+
+    experience = resume_json.get("experience") if isinstance(resume_json.get("experience"), list) else []
+    for exp in experience:
+        if not isinstance(exp, dict):
+            continue
+        for key in ("company", "title"):
+            if isinstance(exp.get(key), str):
+                yield exp.get(key)
+        bullets = exp.get("bullets") if isinstance(exp.get("bullets"), list) else []
+        for bullet in bullets:
+            if isinstance(bullet, dict) and isinstance(bullet.get("text"), str):
+                yield bullet.get("text")
+
+    projects = resume_json.get("projects") if isinstance(resume_json.get("projects"), list) else []
+    for proj in projects:
+        if not isinstance(proj, dict):
+            continue
+        for key in ("name", "text"):
+            if isinstance(proj.get(key), str):
+                yield proj.get(key)
+        bullets = proj.get("bullets") if isinstance(proj.get("bullets"), list) else []
+        for bullet in bullets:
+            if isinstance(bullet, dict) and isinstance(bullet.get("text"), str):
+                yield bullet.get("text")
+
+    education = resume_json.get("education") if isinstance(resume_json.get("education"), list) else []
+    for edu in education:
+        if not isinstance(edu, dict):
+            continue
+        for key in ("school", "degree"):
+            if isinstance(edu.get(key), str):
+                yield edu.get(key)
+
+
+def _extract_tool_like_terms_with_display(text: str) -> List[Tuple[str, str]]:
+    terms: List[Tuple[str, str]] = []
+    for raw in _RAW_TOKEN_PATTERN.findall(text):
+        cleaned = _strip_trailing_periods(raw)
+        if not cleaned:
+            continue
+        if _is_tool_like_raw(cleaned):
+            normalized = _normalize_tool_token(cleaned)
+            if normalized:
+                terms.append((normalized, cleaned))
+    return terms
+
+
+def _find_display_in_texts(term: str, resume_texts: Sequence[str]) -> Optional[str]:
+    if not term:
+        return None
+    has_special = any(ch in "#+." for ch in term)
+    if has_special:
+        pattern = re.compile(re.escape(term), re.IGNORECASE)
+    else:
+        pattern = re.compile(rf"\b{re.escape(term)}\b", re.IGNORECASE)
+    for text in resume_texts:
+        if not isinstance(text, str) or not text:
+            continue
+        match = pattern.search(text)
+        if match:
+            return match.group(0)
+    return None
+
+
+def _segment_has_tool_like_token(segment: str) -> bool:
+    for raw in _RAW_TOKEN_PATTERN.findall(segment):
+        cleaned = _strip_trailing_periods(raw)
+        if cleaned and _is_tool_like_raw(cleaned):
+            return True
+    return False
+
+
+def _term_is_tool_like(term: str) -> bool:
+    if not term:
+        return False
+    return any(ch.isdigit() for ch in term) or any(ch in "#+." for ch in term)
+
+
+def _segment_has_technical_indicator(segment: str) -> bool:
+    tokens = tokenize(segment)
+    phrases = generate_ngrams(tokens, 3)
+    terms = set(tokens) | phrases
+    return any(indicator in terms for indicator in _TECHNICAL_INDICATORS)
+
+
+def _term_has_technical_indicator(term: str) -> bool:
+    tokens = tokenize(term)
+    phrases = generate_ngrams(tokens, 3)
+    terms = set(tokens) | phrases
+    return any(indicator in terms for indicator in _TECHNICAL_INDICATORS)
+
+
+def _build_resume_hard_skill_inventory(
+    resume_json: Dict[str, Any],
+    candidate_keywords: Sequence[str],
+    resume_texts: Sequence[str],
+    soft_skill_terms: Set[str],
+    resume_normalized: str,
+) -> Tuple[Set[str], Dict[str, str]]:
+    hard_terms: Set[str] = set()
+    display_map: Dict[str, str] = {}
+
+    skills = resume_json.get("skills") if isinstance(resume_json.get("skills"), dict) else {}
+    lines = skills.get("lines") if isinstance(skills.get("lines"), list) else []
+    for line in lines:
+        if not isinstance(line, dict):
+            continue
+        text = line.get("text")
+        if not isinstance(text, str):
+            continue
+        segments, _ = _split_skills_line(text)
+        for segment in segments:
+            normalized = normalize_text(segment)
+            if not normalized or normalized in soft_skill_terms:
+                continue
+            if _segment_has_tool_like_token(segment) or _segment_has_technical_indicator(segment):
+                for term in _segment_term_set(segment) | {normalized}:
+                    if term in soft_skill_terms:
+                        continue
+                    if term not in hard_terms:
+                        hard_terms.add(term)
+                        display_map[term] = segment
+
+    for text in resume_texts:
+        if not isinstance(text, str):
+            continue
+        for normalized, display in _extract_tool_like_terms_with_display(text):
+            if normalized not in hard_terms:
+                hard_terms.add(normalized)
+                display_map[normalized] = display
+
+    for keyword in candidate_keywords:
+        normalized = normalize_text(keyword)
+        if not normalized or normalized in soft_skill_terms:
+            continue
+        if normalized in hard_terms:
+            continue
+        if normalized and resume_normalized and normalized not in resume_normalized:
+            continue
+        display = _find_display_in_texts(normalized, resume_texts) or keyword
+        hard_terms.add(normalized)
+        display_map.setdefault(normalized, display)
+
+    return hard_terms, display_map
+
+
+def _collect_existing_skill_terms(lines: List[Any]) -> Set[str]:
+    existing: Set[str] = set()
+    for line in lines:
+        if not isinstance(line, dict):
+            continue
+        text = line.get("text")
+        if not isinstance(text, str):
+            continue
+        segments, _ = _split_skills_line(text)
+        for segment in segments:
+            normalized = normalize_text(segment)
+            if normalized:
+                existing.add(normalized)
+            existing.update(_segment_term_set(segment))
+    return existing
+
+
+def _collect_matched_hard_terms(candidate_keywords: Sequence[str], hard_skill_terms: Set[str]) -> List[str]:
+    matched: List[str] = []
+    for keyword in candidate_keywords:
+        normalized = normalize_text(keyword)
+        if not normalized:
+            continue
+        if normalized in hard_skill_terms and normalized not in matched:
+            matched.append(normalized)
+    return matched
+
+
+def _collect_matched_soft_terms(
+    candidate_keywords: Sequence[str],
+    soft_skill_terms: Set[str],
+    resume_normalized: str,
+) -> List[str]:
+    matched: List[str] = []
+    for keyword in candidate_keywords:
+        normalized = normalize_text(keyword)
+        if not normalized or normalized not in soft_skill_terms:
+            continue
+        if resume_normalized and normalized not in resume_normalized:
+            continue
+        if normalized not in matched:
+            matched.append(normalized)
+    return matched
+
+
+def _classify_skill_segment(segment: str, hard_skill_terms: Set[str], soft_skill_terms: Set[str]) -> str:
+    normalized = normalize_text(segment)
+    if normalized in soft_skill_terms:
+        return "soft"
+    if normalized in hard_skill_terms:
+        return "hard"
+    if _segment_has_tool_like_token(segment) or _segment_has_technical_indicator(segment):
+        return "hard"
+    return "unknown"
+
+
+def _segment_term_set(segment: str) -> Set[str]:
+    tokens = tokenize(segment)
+    phrases = generate_ngrams(tokens, 3)
+    return set(tokens) | phrases
+
+
+def _reorder_skill_segments(
+    segments: List[str],
+    classifications: List[str],
+    matched_hard_terms: Sequence[str],
+    matched_soft_terms: Sequence[str],
+) -> List[str]:
+    matched_hard_set = set(matched_hard_terms)
+    matched_soft_set = set(matched_soft_terms)
+    buckets: Dict[str, List[Tuple[int, str]]] = {
+        "hard_matched": [],
+        "hard": [],
+        "soft_matched": [],
+        "soft": [],
+        "unknown": [],
+    }
+    for idx, (segment, classification) in enumerate(zip(segments, classifications)):
+        terms = _segment_term_set(segment)
+        if classification == "hard":
+            if matched_hard_set and terms.intersection(matched_hard_set):
+                buckets["hard_matched"].append((idx, segment))
+            else:
+                buckets["hard"].append((idx, segment))
+        elif classification == "soft":
+            if matched_soft_set and terms.intersection(matched_soft_set):
+                buckets["soft_matched"].append((idx, segment))
+            else:
+                buckets["soft"].append((idx, segment))
+        else:
+            buckets["unknown"].append((idx, segment))
+
+    ordered: List[str] = []
+    for key in ("hard_matched", "hard", "soft_matched", "soft", "unknown"):
+        ordered.extend([segment for _, segment in sorted(buckets[key], key=lambda item: item[0])])
+    return ordered
+
+
+def _surface_missing_hard_skills(
+    line_states: List[Dict[str, Any]],
+    missing_hard_terms: Sequence[str],
+    hard_skill_display: Dict[str, str],
+    soft_skill_terms: Set[str],
+    audit_log: Dict[str, Any],
+) -> None:
+    if not line_states:
+        return
+
+    for term in missing_hard_terms:
+        display = hard_skill_display.get(term)
+        if not display:
+            continue
+        inserted = False
+        for state in line_states:
+            if inserted:
+                break
+            segments = state["segments"]
+            separator = state["separator"]
+            budget = state["budget"]
+            current_text = separator.join(segments)
+            current_len = len(current_text)
+            normalized_segments = {normalize_text(seg) for seg in segments if normalize_text(seg)}
+            if term in normalized_segments:
+                continue
+
+            classifications = state["classifications"]
+            insert_index = _preferred_hard_insert_index(classifications)
+            candidate_segments = list(segments)
+            candidate_segments.insert(insert_index, display)
+            candidate_len = len(separator.join(candidate_segments))
+            if candidate_len <= budget:
+                segments.insert(insert_index, display)
+                classifications.insert(insert_index, "hard")
+                state["segments"] = segments
+                state["classifications"] = classifications
+                state["line"]["text"] = separator.join(segments)
+                _update_skills_detail(audit_log, state["line_id"], state["line"]["text"], "hard_skill_surface")
+                inserted = True
+                continue
+
+            replacement_index = _find_replacement_index(
+                segments,
+                classifications,
+                display,
+                budget,
+                separator,
+                soft_skill_terms,
+            )
+            if replacement_index is not None:
+                segments[replacement_index] = display
+                classifications[replacement_index] = "hard"
+                state["segments"] = segments
+                state["classifications"] = classifications
+                state["line"]["text"] = separator.join(segments)
+                _update_skills_detail(audit_log, state["line_id"], state["line"]["text"], "hard_skill_surface")
+                inserted = True
+
+
+def _preferred_hard_insert_index(classifications: Sequence[str]) -> int:
+    last_hard_index = -1
+    for idx, classification in enumerate(classifications):
+        if classification == "hard":
+            last_hard_index = idx
+    return last_hard_index + 1 if last_hard_index >= 0 else 0
+
+
+def _find_replacement_index(
+    segments: Sequence[str],
+    classifications: Sequence[str],
+    replacement: str,
+    budget: int,
+    separator: str,
+    soft_skill_terms: Set[str],
+) -> Optional[int]:
+    candidates: List[int] = []
+    for idx, classification in enumerate(classifications):
+        if classification == "hard":
+            continue
+        candidates.append(idx)
+
+    def candidate_rank(index: int) -> Tuple[int, int]:
+        normalized = normalize_text(segments[index])
+        is_soft = normalized in soft_skill_terms
+        classification = classifications[index]
+        if classification == "soft" and is_soft:
+            return (0, index)
+        if classification == "unknown":
+            return (1, index)
+        return (2, index)
+
+    for idx in sorted(candidates, key=candidate_rank):
+        candidate_segments = list(segments)
+        candidate_segments[idx] = replacement
+        if len(separator.join(candidate_segments)) <= budget:
+            return idx
+    return None
+
+
+def _update_skills_detail(
+    audit_log: Dict[str, Any],
+    line_id: str,
+    final_text: str,
+    reason: str,
+) -> None:
+    details = audit_log.get("skills_details")
+    if not isinstance(details, list):
+        return
+    for detail in reversed(details):
+        if isinstance(detail, dict) and detail.get("line_id") == line_id:
+            detail["final_text"] = final_text
+            detail["changed"] = True
+            detail["skip_reason"] = reason
+            return
 
 
 def _score_skill_segments(segments: List[str], candidates: List[str]) -> List[Tuple[str, int, int]]:
