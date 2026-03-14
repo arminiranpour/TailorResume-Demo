@@ -1,0 +1,84 @@
+{
+  "meta": {
+    "total_pages": 1,
+    "structure_hash": "ats-fixture"
+  },
+  "summary": {
+    "id": "summary",
+    "text": "Backend engineer with Python, Node.js, and machine learning delivery."
+  },
+  "skills": {
+    "id": "skills",
+    "lines": [
+      {
+        "line_id": "skills_1",
+        "text": "Python, JS, CI/CD, PostgreSQL"
+      },
+      {
+        "line_id": "skills_2",
+        "text": "C Sharp, dot net, ReactJS"
+      }
+    ]
+  },
+  "experience": [
+    {
+      "exp_id": "exp_older",
+      "company": "LegacyCo",
+      "title": "Machine Learning Engineer",
+      "start_date": "2020-01",
+      "end_date": "2022-03",
+      "bullets": [
+        {
+          "bullet_id": "exp_older_b1",
+          "bullet_index": 0,
+          "text": "Shipped machine learning data pipelines in TypeScript.",
+          "char_count": 55
+        }
+      ]
+    },
+    {
+      "exp_id": "exp_recent",
+      "company": "NewCo",
+      "title": "Senior Software Engineer",
+      "start_date": "2022-04",
+      "end_date": "Present",
+      "bullets": [
+        {
+          "bullet_id": "exp_recent_b1",
+          "bullet_index": 0,
+          "text": "Built RESTful APIs with Python and PostgreSQL.",
+          "char_count": 48
+        },
+        {
+          "bullet_id": "exp_recent_b2",
+          "bullet_index": 1,
+          "text": "Led CI/CD automation for NodeJS services.",
+          "char_count": 42
+        }
+      ]
+    }
+  ],
+  "education": [
+    {
+      "edu_id": "edu_1",
+      "school": "State University",
+      "degree": "B.S. Computer Science",
+      "start_date": "2014",
+      "end_date": "2018"
+    }
+  ],
+  "projects": [
+    {
+      "project_id": "proj_1",
+      "name": "ATS Optimizer",
+      "bullets": [
+        {
+          "bullet_id": "proj_1_b1",
+          "bullet_index": 0,
+          "text": "Created ReactJS dashboard for resume tailoring.",
+          "char_count": 47
+        }
+      ]
+    }
+  ]
+}

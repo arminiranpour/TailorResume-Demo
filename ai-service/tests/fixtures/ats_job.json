@@ -1,0 +1,37 @@
+{
+  "title": "Senior JavaScript Software Engineer",
+  "company": "ExampleCo",
+  "location": "Remote",
+  "remote": true,
+  "seniority": "senior",
+  "must_have": [
+    {
+      "requirement_id": "req_1",
+      "text": "Expertise in JS/TS and NodeJS"
+    },
+    {
+      "requirement_id": "req_2",
+      "text": "Build RESTful APIs in C Sharp / dot net"
+    },
+    {
+      "requirement_id": "req_3",
+      "text": "Own CI/CD automation"
+    }
+  ],
+  "nice_to_have": [
+    {
+      "requirement_id": "nice_1",
+      "text": "Postgres and ReactJS"
+    }
+  ],
+  "responsibilities": [
+    "Build and maintain REST APIs with Node.js",
+    "Own CI/CD pipelines for JavaScript services"
+  ],
+  "keywords": [
+    "JavaScript",
+    "Node.js",
+    "REST API",
+    "CI/CD"
+  ]
+}
