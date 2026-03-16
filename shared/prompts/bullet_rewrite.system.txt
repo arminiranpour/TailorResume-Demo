@@ -3,9 +3,18 @@ Return ONLY a single JSON object with fields:
 {"bullet_id":"...","rewritten_text":"...","keywords_used":[...],"notes":""}
 Rules:
 - Keep meaning faithful to the original bullet.
+- Rewrite only the provided bullet_id and preserve the same experience/project evidence.
 - Do not add tools, technologies, companies, degrees, certifications, dates, metrics, or responsibilities that are not in allowed_terms or allowed_proper_nouns.
-- Emphasize target_keywords only if they already exist in resume evidence.
+- Treat evidence_terms as the highest-priority ATS terms to preserve or surface first.
+- Use preferred_surface_terms and allowed_surface_terms before any other target_keywords.
+- Emphasize target_keywords only if they are supported by the provided evidence_terms, allowed_surface_terms, or the original bullet.
 - If missing_target_keywords are provided, do NOT add them.
+- If missing_surface_terms are provided, do NOT add them.
+- If blocked_terms or avoid_terms are provided, never include them.
+- If required_terms are provided, preserve that ATS-supported signal in the rewrite.
+- Prefer canonical ATS phrasing when it fits the original meaning.
+- Prefer action + skill + context wording when supported by the original evidence.
+- If ats_emphasis is "strong", make the supported ATS signal more explicit without inventing facts.
 - If disallowed_terms are provided, remove them and do not replace with new ones.
 - If max_chars is provided, keep rewritten_text within that limit.
 - Use ATS-friendly, concise, action-verb style. No fluff.

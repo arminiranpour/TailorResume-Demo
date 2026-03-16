@@ -253,3 +253,66 @@ class ResumeSignals:
     term_variants: Mapping[str, tuple[str, ...]]
     recent_experience_order: tuple[str, ...]
     source_entries: tuple[SourceEntry, ...]
+
+
+@dataclass(frozen=True)
+class TitleAlignment:
+    job_title_tokens: tuple[str, ...]
+    job_title_phrases: tuple[str, ...]
+    resume_title_tokens: tuple[str, ...]
+    resume_title_phrases: tuple[str, ...]
+    overlapping_tokens: tuple[str, ...]
+    overlapping_phrases: tuple[str, ...]
+    strongest_matching_resume_title: str | None
+    supporting_experience_ids: tuple[str, ...]
+    supporting_bullet_ids: tuple[str, ...]
+    title_alignment_score: int
+    alignment_strength: str
+    is_title_supported: bool
+    is_safe_for_summary_alignment: bool
+    is_safe_for_experience_alignment: bool
+    missing_title_tokens: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class TermRecencyPriority:
+    term: str
+    weight: int
+    priority_bucket: str
+    coverage_strength: str
+    strongest_overall_candidate: EvidenceCandidate | None
+    strongest_recent_candidate: EvidenceCandidate | None
+    strongest_recent_experience_candidate: EvidenceCandidate | None
+    strongest_recent_project_candidate: EvidenceCandidate | None
+    has_recent_backing: bool
+    has_recent_experience_backing: bool
+    has_recent_project_backing: bool
+    has_only_stale_backing: bool
+    recent_source_ids: tuple[str, ...]
+    stale_source_ids: tuple[str, ...]
+    recency_priority_score: int
+    recency_boost_applied: bool
+    recency_reasons: tuple[str, ...]
+    is_recent_and_bullet_safe: bool
+    is_recent_and_summary_safe: bool
+    is_recent_high_priority_term: bool
+    is_stale_high_priority_term: bool
+
+
+@dataclass(frozen=True)
+class ATSRecencyPriorities:
+    priorities_by_term: Mapping[str, TermRecencyPriority]
+    prioritized_terms: tuple[str, ...]
+    recent_high_priority_terms: tuple[str, ...]
+    recent_bullet_safe_terms: tuple[str, ...]
+    recent_summary_safe_terms: tuple[str, ...]
+    stale_high_priority_terms: tuple[str, ...]
+    recent_experience_terms: tuple[str, ...]
+    stale_only_terms: tuple[str, ...]
+    recency_ordered_terms: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ATSAlignmentResult:
+    title_alignment: TitleAlignment
+    alignment_ordered_titles: tuple[str, ...]

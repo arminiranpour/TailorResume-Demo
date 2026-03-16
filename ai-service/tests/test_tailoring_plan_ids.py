@@ -1,119 +1,92 @@
 import os
 import sys
-import json
 
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from app.pipelines.tailoring_plan import TailoringPlanError, generate_tailoring_plan
+from app.pipelines.tailoring_plan import generate_tailoring_plan
 from app.providers.base import LLMProvider
 
 
-class FixedProvider(LLMProvider):
-    def __init__(self, response):
-        self.response = response
-
+class DummyProvider(LLMProvider):
     def generate(self, messages, *, timeout=None, **kwargs):
-        return self.response
+        raise RuntimeError("provider should not be called")
 
 
 def sample_resume():
     return {
         "meta": {"total_pages": 1, "structure_hash": "abc"},
-        "summary": {"id": "summary", "text": "Backend engineer."},
-        "skills": {"id": "skills", "lines": [{"line_id": "skills_1", "text": "Python"}]},
+        "summary": {"id": "summary", "text": "Engineer."},
+        "skills": {"id": "skills", "lines": [{"line_id": "skills_1", "text": "Python, AWS"}]},
         "experience": [
             {
                 "exp_id": "exp_1",
                 "company": "Acme",
-                "title": "Dev",
-                "start_date": "2020",
-                "end_date": "2021",
+                "title": "Engineer",
+                "start_date": "2021-01",
+                "end_date": "2022-12",
                 "bullets": [
                     {
                         "bullet_id": "exp_1_b1",
                         "bullet_index": 0,
-                        "text": "Built APIs.",
-                        "char_count": 11,
+                        "text": "Built Python APIs.",
+                        "char_count": 18,
                     }
                 ],
             }
         ],
-        "projects": [],
-        "education": [
+        "projects": [
             {
-                "edu_id": "edu_1",
-                "school": "Uni",
-                "degree": "BS",
-                "start_date": "2016",
-                "end_date": "2020",
+                "project_id": "proj_1",
+                "name": "Cloud Tool",
+                "bullets": [
+                    {
+                        "bullet_id": "proj_1_b1",
+                        "bullet_index": 0,
+                        "text": "Deployed AWS tooling.",
+                        "char_count": 22,
+                    }
+                ],
             }
         ],
+        "education": [],
     }
 
 
 def sample_job():
     return {
+        "title": "Backend Engineer",
         "must_have": [{"requirement_id": "req_python", "text": "Python"}],
-        "nice_to_have": [],
-        "responsibilities": ["Build APIs"],
-        "keywords": ["Backend"],
+        "nice_to_have": [{"requirement_id": "req_aws", "text": "AWS"}],
+        "responsibilities": ["Build backend APIs"],
+        "keywords": ["Python", "AWS"],
     }
 
 
-def test_rejects_unknown_bullet_id():
-    score_result = {
+def sample_score():
+    return {
         "decision": "PROCEED",
         "reasons": [],
         "matched_requirements": [],
         "missing_requirements": [],
         "must_have_coverage_percent": 100,
     }
-    plan = {
-        "bullet_actions": [
-            {"bullet_id": "unknown_b1", "rewrite_intent": "keep", "target_keywords": []}
-        ],
-        "missing_requirements": [],
-        "prioritized_keywords": ["built"],
-    }
-    provider = FixedProvider(json.dumps(plan))
-    try:
-        generate_tailoring_plan(sample_resume(), sample_job(), score_result, provider)
-    except TailoringPlanError as exc:
-        assert any("unknown_bullet_ids" in item for item in exc.details)
-        return
-    assert False, "Expected TailoringPlanError"
 
 
-def test_rejects_removed_bullet_id():
-    score_result = {
-        "decision": "PROCEED",
-        "reasons": [],
-        "matched_requirements": [],
-        "missing_requirements": [],
-        "must_have_coverage_percent": 100,
+def test_plan_preserves_resume_bullet_ids_and_order():
+    result = generate_tailoring_plan(sample_resume(), sample_job(), sample_score(), DummyProvider())
+
+    assert [item["bullet_id"] for item in result["bullet_actions"]] == ["exp_1_b1", "proj_1_b1"]
+    assert result["bullet_actions"][0]["source_section"] == "experience_bullet"
+    assert result["bullet_actions"][1]["source_section"] == "project_bullet"
+
+
+def test_plan_marks_only_existing_bullets_for_rewrite():
+    result = generate_tailoring_plan(sample_resume(), sample_job(), sample_score(), DummyProvider())
+
+    rewritten_ids = {
+        item["bullet_id"] for item in result["bullet_actions"] if item["rewrite_intent"] == "rewrite"
     }
-    resume = sample_resume()
-    resume["experience"][0]["bullets"] = [
-        {
-            "bullet_id": "exp_1_b1",
-            "bullet_index": 0,
-            "text": "Built APIs.",
-            "char_count": 11,
-        }
-    ]
-    plan = {
-        "bullet_actions": [
-            {"bullet_id": "exp_1_b2", "rewrite_intent": "keep", "target_keywords": []}
-        ],
-        "missing_requirements": [],
-        "prioritized_keywords": ["built"],
-    }
-    provider = FixedProvider(json.dumps(plan))
-    try:
-        generate_tailoring_plan(resume, sample_job(), score_result, provider)
-    except TailoringPlanError as exc:
-        assert any("unknown_bullet_ids" in item for item in exc.details)
-        return
-    assert False, "Expected TailoringPlanError"
+
+    assert rewritten_ids.issubset({"exp_1_b1", "proj_1_b1"})

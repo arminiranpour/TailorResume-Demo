@@ -4,8 +4,27 @@ import json
 import re
 import unicodedata
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Sequence, Set, Tuple
 
+from app.ats import (
+    ATSRecencyPriorities,
+    JobWeights,
+    ResumeCoverage,
+    ResumeEvidenceLinks,
+    ResumeSignals,
+    build_coverage_model,
+    build_evidence_links,
+    build_job_weights,
+    build_recency_priorities,
+    build_title_alignment,
+    extract_job_signals,
+    extract_resume_signals,
+)
+from app.ats.canonicalize import (
+    canonicalize_term,
+    extract_canonical_term_pairs,
+    normalize_text as normalize_ats_text,
+)
 from app.config import get_config
 from app.pipelines.allowed_vocab import build_allowed_vocab, normalize_terms
 from app.pipelines.repair import repair_json_to_schema
@@ -13,7 +32,7 @@ from app.prompts.loader import load_system_prompt
 from app.providers.base import LLMProvider
 from app.schemas.validator import validate_json
 from app.security.untrusted import build_llm_messages
-from shared.scoring.normalize import generate_ngrams, normalize_text, tokenize
+from app.scoring_normalize import generate_ngrams, normalize_text, tokenize
 
 
 @dataclass
@@ -29,6 +48,82 @@ class BulletRewriteNotAllowed(Exception):
 
     def __str__(self) -> str:
         return f"Bullet rewrite not allowed for decision={self.decision}"
+
+
+@dataclass(frozen=True)
+class TailoringATSContext:
+    supported_priority_terms: Tuple[str, ...]
+    under_supported_terms: Tuple[str, ...]
+    blocked_bullet_terms: Tuple[str, ...]
+    recent_priority_terms: Tuple[str, ...]
+    summary_alignment_terms: Tuple[str, ...]
+    skill_priority_terms: Tuple[str, ...]
+    title_supported_terms: Tuple[str, ...]
+    title_missing_terms: Tuple[str, ...]
+    title_alignment_safe: bool
+    plan_terms: FrozenSet[str]
+    avoid_terms: FrozenSet[str]
+
+
+@dataclass(frozen=True)
+class BulletATSRewritePolicy:
+    bullet_id: str
+    source_section: Optional[str]
+    requested_target_keywords: Tuple[str, ...]
+    evidence_terms: Tuple[str, ...]
+    safe_target_terms: Tuple[str, ...]
+    surface_terms: Tuple[str, ...]
+    blocked_terms: Tuple[str, ...]
+    avoid_terms: Tuple[str, ...]
+    required_terms: Tuple[str, ...]
+    allowed_new_terms: FrozenSet[str]
+    blocked_term_set: FrozenSet[str]
+    plan_term_set: FrozenSet[str]
+    is_recent: bool
+    is_primary_evidence: bool
+    is_safe_for_ats: bool
+    emphasis_strength: str
+
+
+@dataclass(frozen=True)
+class SkillTermPolicy:
+    term: str
+    display: str
+    weight: int
+    support_score: int
+    priority_rank: int
+    supported_rank: int
+    recent_rank: int
+    has_recent_backing: bool
+    has_cross_section_backing: bool
+    has_experience_backing: bool
+    has_project_backing: bool
+    is_supported_priority: bool
+    is_skill_priority: bool
+    is_recent_priority: bool
+    is_under_supported: bool
+    is_blocked: bool
+    is_allowed_surface: bool
+    is_skills_only: bool
+    missing_experience_backing: bool
+
+
+@dataclass(frozen=True)
+class SkillsATSOptimizationPolicy:
+    resume_signals: ResumeSignals
+    job_weights: JobWeights
+    coverage: ResumeCoverage
+    evidence_links: ResumeEvidenceLinks
+    recency: ATSRecencyPriorities
+    supported_priority_terms: Tuple[str, ...]
+    skill_priority_terms: Tuple[str, ...]
+    recent_priority_terms: Tuple[str, ...]
+    under_supported_terms: FrozenSet[str]
+    blocked_terms: Tuple[str, ...]
+    allowed_surface_terms: FrozenSet[str]
+    preferred_line_ids: Tuple[str, ...]
+    line_budget_by_id: Dict[str, int]
+    term_policies: Dict[str, SkillTermPolicy]
 
 
 _REWRITE_KEEP = {"keep", "skip", "none"}
@@ -103,6 +198,23 @@ _TECHNICAL_INDICATORS = {
     "testing",
 }
 
+_SKILL_DISPLAY_OVERRIDES = {
+    ".net": ".NET",
+    "api": "API",
+    "aws": "AWS",
+    "c#": "C#",
+    "ci/cd": "CI/CD",
+    "fastapi": "FastAPI",
+    "graphql": "GraphQL",
+    "javascript": "JavaScript",
+    "node.js": "Node.js",
+    "postgresql": "PostgreSQL",
+    "react": "React",
+    "rest api": "REST API",
+    "sql": "SQL",
+    "typescript": "TypeScript",
+}
+
 
 def rewrite_resume_text(
     resume_json: Dict[str, Any],
@@ -121,6 +233,24 @@ def rewrite_resume_text(
         character_budgets=character_budgets,
     )
     return tailored
+
+
+def apply_bullet_rewrites(
+    resume_json: Dict[str, Any],
+    job_json: Dict[str, Any],
+    score_result: Dict[str, Any],
+    tailoring_plan: Dict[str, Any],
+    provider: LLMProvider,
+    character_budgets: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    return rewrite_resume_text(
+        resume_json,
+        job_json,
+        score_result,
+        tailoring_plan,
+        provider,
+        character_budgets=character_budgets,
+    )
 
 
 def rewrite_resume_text_with_audit(
@@ -162,7 +292,16 @@ def rewrite_resume_text_with_audit(
 
     _rewrite_summary(tailored, job_json, tailoring_plan, provider, allowed_vocab, budgets, audit_log)
     _reorder_skills(tailored, tailoring_plan)
-    _tailor_skill_lines(tailored, job_json, tailoring_plan, allowed_vocab, audit_log)
+    _tailor_skill_lines(
+        tailored,
+        resume_json,
+        job_json,
+        score_result,
+        tailoring_plan,
+        allowed_vocab,
+        budgets,
+        audit_log,
+    )
     _rewrite_bullets(
         tailored,
         job_json,
@@ -196,6 +335,7 @@ def _clone_resume(resume_json: Dict[str, Any]) -> Dict[str, Any]:
 def _derive_budgets(resume_json: Dict[str, Any], character_budgets: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     summary_budget = None
     bullet_budgets: Dict[str, int] = {}
+    skills_line_budgets: Dict[str, int] = {}
     if isinstance(character_budgets, dict):
         summary_value = character_budgets.get("summary")
         if isinstance(summary_value, int) and summary_value > 0:
@@ -205,6 +345,16 @@ def _derive_budgets(resume_json: Dict[str, Any], character_budgets: Optional[Dic
             for bullet_id, value in bullets_value.items():
                 if isinstance(bullet_id, str) and isinstance(value, int) and value > 0:
                     bullet_budgets[bullet_id] = value
+        skills_value = character_budgets.get("skills_lines")
+        if isinstance(skills_value, dict):
+            for line_id, value in skills_value.items():
+                if isinstance(line_id, str) and isinstance(value, int) and value > 0:
+                    skills_line_budgets[line_id] = value
+        skills_value = character_budgets.get("skills_line_max_chars")
+        if isinstance(skills_value, dict):
+            for line_id, value in skills_value.items():
+                if isinstance(line_id, str) and isinstance(value, int) and value > 0:
+                    skills_line_budgets[line_id] = value
 
     summary = resume_json.get("summary") if isinstance(resume_json.get("summary"), dict) else {}
     summary_text = summary.get("text") if isinstance(summary.get("text"), str) else ""
@@ -217,7 +367,22 @@ def _derive_budgets(resume_json: Dict[str, Any], character_budgets: Optional[Dic
         budget = max(len(text), _MIN_BUDGET)
         bullet_budgets[bullet_id] = budget
 
-    return {"summary": summary_budget, "bullets": bullet_budgets}
+    skills = resume_json.get("skills") if isinstance(resume_json.get("skills"), dict) else {}
+    lines = skills.get("lines") if isinstance(skills.get("lines"), list) else []
+    for line in lines:
+        if not isinstance(line, dict):
+            continue
+        line_id = line.get("line_id")
+        text = line.get("text")
+        if not isinstance(line_id, str) or not isinstance(text, str):
+            continue
+        skills_line_budgets.setdefault(line_id, len(text))
+
+    return {
+        "summary": summary_budget,
+        "bullets": bullet_budgets,
+        "skills_line_max_chars": skills_line_budgets,
+    }
 
 
 def _iter_bullet_texts(resume_json: Dict[str, Any]) -> Iterable[Tuple[str, str]]:
@@ -405,57 +570,28 @@ def _reorder_skills(tailored: Dict[str, Any], tailoring_plan: Dict[str, Any]) ->
 
 def _tailor_skill_lines(
     tailored: Dict[str, Any],
+    source_resume_json: Dict[str, Any],
     job_json: Dict[str, Any],
+    score_result: Dict[str, Any],
     tailoring_plan: Dict[str, Any],
     allowed_vocab: Dict[str, Any],
+    budgets: Dict[str, Any],
     audit_log: Dict[str, Any],
 ) -> None:
+    del allowed_vocab
+    del score_result
     skills = tailored.get("skills") if isinstance(tailored.get("skills"), dict) else None
     if skills is None:
         return
     lines = skills.get("lines") if isinstance(skills.get("lines"), list) else []
     if not lines:
         return
-
-    candidates = _collect_candidate_keywords(job_json, tailoring_plan, allowed_vocab)
-    if not candidates:
-        for line in lines:
-            if not isinstance(line, dict):
-                continue
-            line_id = line.get("line_id")
-            original_text = line.get("text")
-            if not isinstance(line_id, str) or not isinstance(original_text, str):
-                continue
-            audit_log["skills_details"].append(
-                {
-                    "line_id": line_id,
-                    "original_text": original_text,
-                    "final_text": original_text,
-                    "changed": False,
-                    "skip_reason": "no_candidate_keywords",
-                    "target_keywords": [],
-                }
-            )
-        return
-
-    resume_texts = list(_iter_resume_texts(tailored))
-    resume_normalized = normalize_text(" ".join(resume_texts))
-    soft_skill_terms = set(_SOFT_SKILL_TERMS)
-    hard_skill_terms, hard_skill_display = _build_resume_hard_skill_inventory(
-        tailored,
-        candidates,
-        resume_texts,
-        soft_skill_terms,
-        resume_normalized,
-    )
-
-    matched_hard_terms = _collect_matched_hard_terms(candidates, hard_skill_terms)
-    matched_soft_terms = _collect_matched_soft_terms(candidates, soft_skill_terms, resume_normalized)
-
-    existing_skill_terms = _collect_existing_skill_terms(lines)
-    missing_hard_terms = [
-        term for term in matched_hard_terms if term not in existing_skill_terms and term in hard_skill_display
-    ]
+    original_text_by_id = {
+        line.get("line_id"): line.get("text")
+        for line in lines
+        if isinstance(line, dict) and isinstance(line.get("line_id"), str) and isinstance(line.get("text"), str)
+    }
+    policy = _build_skills_ats_policy(source_resume_json, job_json, tailoring_plan, budgets)
 
     line_states: List[Dict[str, Any]] = []
     for line in lines:
@@ -465,31 +601,6 @@ def _tailor_skill_lines(
         original_text = line.get("text")
         if not isinstance(line_id, str) or not isinstance(original_text, str):
             continue
-        segments, separator = _split_skills_line(original_text)
-        if len(segments) <= 1:
-            audit_log["skills_details"].append(
-                {
-                    "line_id": line_id,
-                    "original_text": original_text,
-                    "target_keywords": [],
-                    "final_text": original_text,
-                    "changed": False,
-                    "skip_reason": "single_segment",
-                }
-            )
-            line_states.append(
-                {
-                    "line": line,
-                    "line_id": line_id,
-                    "original_text": original_text,
-                    "segments": segments,
-                    "separator": separator,
-                    "classifications": [_classify_skill_segment(seg, hard_skill_terms, soft_skill_terms) for seg in segments],
-                    "budget": len(original_text),
-                }
-            )
-            continue
-
         detail = {
             "line_id": line_id,
             "original_text": original_text,
@@ -497,18 +608,16 @@ def _tailor_skill_lines(
             "final_text": original_text,
             "changed": False,
             "skip_reason": None,
+            "reject_reason": None,
         }
-        classifications = [_classify_skill_segment(seg, hard_skill_terms, soft_skill_terms) for seg in segments]
-        reordered = _reorder_skill_segments(
-            segments,
-            classifications,
-            matched_hard_terms,
-            matched_soft_terms,
-        )
+        segments, separator = _split_skills_line(original_text)
+        optimized_infos = _optimize_skill_line_segments(segments, policy)
+        reordered = [info["text"] for info in optimized_infos]
         if reordered == segments:
             detail["skip_reason"] = "no_reorder_needed"
         else:
-            detail["target_keywords"] = _extract_matching_keywords(reordered, candidates)
+            detail["skip_reason"] = "ats_priority_reorder"
+            detail["target_keywords"] = [info["primary_term"] for info in optimized_infos if info.get("is_target_term")]
         new_text = separator.join(reordered)
         line["text"] = new_text
         detail["final_text"] = new_text
@@ -520,16 +629,769 @@ def _tailor_skill_lines(
                 "line_id": line_id,
                 "original_text": original_text,
                 "segments": reordered,
+                "infos": optimized_infos,
                 "separator": separator,
-                "classifications": [
-                    _classify_skill_segment(seg, hard_skill_terms, soft_skill_terms) for seg in reordered
-                ],
-                "budget": len(original_text),
+                "budget": policy.line_budget_by_id.get(line_id, len(original_text)),
             }
         )
 
-    if missing_hard_terms:
-        _surface_missing_hard_skills(line_states, missing_hard_terms, hard_skill_display, soft_skill_terms, audit_log)
+    _surface_missing_priority_skill_terms(line_states, policy, audit_log)
+
+    validation_errors = _validate_skills_optimization(
+        original_text_by_id=original_text_by_id,
+        lines=lines,
+        policy=policy,
+    )
+    if validation_errors:
+        _restore_skill_lines_after_validation_failure(line_states, original_text_by_id, validation_errors, audit_log)
+
+
+def _build_skills_ats_policy(
+    resume_json: Dict[str, Any],
+    job_json: Dict[str, Any],
+    tailoring_plan: Dict[str, Any],
+    budgets: Dict[str, Any],
+) -> SkillsATSOptimizationPolicy:
+    job_signals = extract_job_signals(job_json)
+    resume_signals = extract_resume_signals(resume_json)
+    job_weights = build_job_weights(job_signals)
+    coverage = build_coverage_model(job_signals, resume_signals, job_weights)
+    evidence_links = build_evidence_links(job_signals, resume_signals, job_weights, coverage)
+    title_alignment = build_title_alignment(
+        job_signals=job_signals,
+        resume_signals=resume_signals,
+        job_weights=job_weights,
+        coverage=coverage,
+        evidence_links=evidence_links,
+    )
+    recency = build_recency_priorities(
+        job_signals=job_signals,
+        resume_signals=resume_signals,
+        job_weights=job_weights,
+        coverage=coverage,
+        evidence_links=evidence_links,
+        title_alignment=title_alignment,
+    )
+
+    supported_priority_terms = tuple(
+        term
+        for term in _normalize_ordered_terms(tailoring_plan.get("supported_priority_terms"))
+        if _is_supported_skill_term(term, coverage, evidence_links)
+    ) or tuple(
+        term
+        for term in job_weights.ordered_terms
+        if _is_supported_skill_term(term, coverage, evidence_links)
+    )
+    skill_priority_terms = tuple(
+        term
+        for term in _normalize_ordered_terms(tailoring_plan.get("skill_priority_terms"))
+        if _is_skill_surface_term(term, evidence_links)
+    ) or tuple(term for term in job_weights.ordered_terms if _is_skill_surface_term(term, evidence_links))
+    recent_priority_terms = tuple(
+        term
+        for term in _normalize_ordered_terms(tailoring_plan.get("recent_priority_terms"))
+        if _is_skill_surface_term(term, evidence_links) and recency.priorities_by_term[term].has_recent_backing
+    ) or tuple(
+        term
+        for term in recency.recency_ordered_terms
+        if _is_skill_surface_term(term, evidence_links) and recency.priorities_by_term[term].has_recent_backing
+    )
+    under_supported_terms = frozenset(
+        _normalize_ordered_terms(_extract_term_items(tailoring_plan.get("under_supported_terms")))
+        or [
+            term
+            for term in job_weights.ordered_terms
+            if coverage.coverage_by_term[term].is_under_supported
+        ]
+    )
+    blocked_terms = tuple(
+        _normalize_ordered_terms(_extract_blocked_terms(tailoring_plan.get("blocked_terms"), "skills"))
+    )
+    allowed_surface_terms = frozenset(
+        term
+        for term in skill_priority_terms
+        if term not in blocked_terms and term not in under_supported_terms
+    )
+    preferred_line_ids = _preferred_skill_line_ids(resume_json, tailoring_plan)
+    line_budget_by_id = _skill_line_budgets(resume_json, budgets)
+
+    term_candidates = set(resume_signals.skill_terms)
+    term_candidates.update(job_weights.ordered_terms)
+    term_candidates.update(supported_priority_terms)
+    term_candidates.update(skill_priority_terms)
+    term_candidates.update(recent_priority_terms)
+    term_candidates.update(blocked_terms)
+
+    resume_texts = list(_iter_resume_texts(resume_json))
+    priority_rank = {term: index for index, term in enumerate(skill_priority_terms)}
+    supported_rank = {term: index for index, term in enumerate(supported_priority_terms)}
+    recent_rank = {term: index for index, term in enumerate(recent_priority_terms)}
+
+    term_policies: Dict[str, SkillTermPolicy] = {}
+    for term in sorted(term_candidates):
+        term_policies[term] = _build_skill_term_policy(
+            term=term,
+            resume_texts=resume_texts,
+            resume_signals=resume_signals,
+            job_weights=job_weights,
+            coverage=coverage,
+            evidence_links=evidence_links,
+            recency=recency,
+            priority_rank=priority_rank.get(term, -1),
+            supported_rank=supported_rank.get(term, -1),
+            recent_rank=recent_rank.get(term, -1),
+            supported_priority_terms=set(supported_priority_terms),
+            skill_priority_terms=set(skill_priority_terms),
+            recent_priority_terms=set(recent_priority_terms),
+            under_supported_terms=under_supported_terms,
+            blocked_terms=set(blocked_terms),
+            allowed_surface_terms=allowed_surface_terms,
+        )
+
+    return SkillsATSOptimizationPolicy(
+        resume_signals=resume_signals,
+        job_weights=job_weights,
+        coverage=coverage,
+        evidence_links=evidence_links,
+        recency=recency,
+        supported_priority_terms=supported_priority_terms,
+        skill_priority_terms=skill_priority_terms,
+        recent_priority_terms=recent_priority_terms,
+        under_supported_terms=under_supported_terms,
+        blocked_terms=blocked_terms,
+        allowed_surface_terms=allowed_surface_terms,
+        preferred_line_ids=preferred_line_ids,
+        line_budget_by_id=line_budget_by_id,
+        term_policies=term_policies,
+    )
+
+
+def _build_skill_term_policy(
+    *,
+    term: str,
+    resume_texts: Sequence[str],
+    resume_signals: ResumeSignals,
+    job_weights: JobWeights,
+    coverage: ResumeCoverage,
+    evidence_links: ResumeEvidenceLinks,
+    recency: ATSRecencyPriorities,
+    priority_rank: int,
+    supported_rank: int,
+    recent_rank: int,
+    supported_priority_terms: Set[str],
+    skill_priority_terms: Set[str],
+    recent_priority_terms: Set[str],
+    under_supported_terms: FrozenSet[str],
+    blocked_terms: Set[str],
+    allowed_surface_terms: FrozenSet[str],
+) -> SkillTermPolicy:
+    weight_entry = job_weights.weights_by_term.get(term)
+    coverage_entry = coverage.coverage_by_term.get(term)
+    evidence_entry = evidence_links.links_by_term.get(term)
+    recency_entry = recency.priorities_by_term.get(term)
+
+    display = _preferred_skill_display(term, resume_texts, resume_signals, evidence_entry)
+    support_score = 0
+    has_recent_backing = False
+    has_cross_section_backing = False
+    has_experience_backing = False
+    has_project_backing = False
+    is_skills_only = False
+    missing_experience_backing = False
+    if evidence_entry is not None:
+        support_score = (
+            evidence_entry.strongest_candidate.support_score
+            if evidence_entry.strongest_candidate is not None
+            else 0
+        )
+        has_experience_backing = evidence_entry.has_experience_backing
+        has_project_backing = evidence_entry.has_project_backing
+        is_skills_only = term in evidence_links.skills_only_terms
+        missing_experience_backing = evidence_entry.missing_experience_backing
+    if coverage_entry is not None:
+        has_cross_section_backing = coverage_entry.has_cross_section_support
+    if recency_entry is not None:
+        has_recent_backing = recency_entry.has_recent_backing
+
+    return SkillTermPolicy(
+        term=term,
+        display=display,
+        weight=weight_entry.total_weight if weight_entry is not None else 0,
+        support_score=support_score,
+        priority_rank=priority_rank,
+        supported_rank=supported_rank,
+        recent_rank=recent_rank,
+        has_recent_backing=has_recent_backing,
+        has_cross_section_backing=has_cross_section_backing,
+        has_experience_backing=has_experience_backing,
+        has_project_backing=has_project_backing,
+        is_supported_priority=term in supported_priority_terms,
+        is_skill_priority=term in skill_priority_terms,
+        is_recent_priority=term in recent_priority_terms,
+        is_under_supported=term in under_supported_terms or bool(coverage_entry and coverage_entry.is_under_supported),
+        is_blocked=term in blocked_terms,
+        is_allowed_surface=term in allowed_surface_terms,
+        is_skills_only=is_skills_only,
+        missing_experience_backing=missing_experience_backing,
+    )
+
+
+def _is_supported_skill_term(term: str, coverage: ResumeCoverage, evidence_links: ResumeEvidenceLinks) -> bool:
+    coverage_entry = coverage.coverage_by_term.get(term)
+    evidence_entry = evidence_links.links_by_term.get(term)
+    if coverage_entry is None or evidence_entry is None:
+        return False
+    return bool(
+        evidence_entry.is_safe_for_skills
+        and not coverage_entry.is_under_supported
+        and evidence_entry.all_candidates
+    )
+
+
+def _is_skill_surface_term(term: str, evidence_links: ResumeEvidenceLinks) -> bool:
+    evidence_entry = evidence_links.links_by_term.get(term)
+    return bool(evidence_entry and evidence_entry.is_safe_for_skills and evidence_entry.all_candidates)
+
+
+def _preferred_skill_line_ids(
+    resume_json: Dict[str, Any],
+    tailoring_plan: Dict[str, Any],
+) -> Tuple[str, ...]:
+    original_ids = _collect_skill_line_ids(resume_json)
+    preferred: List[str] = []
+    plan_ids = tailoring_plan.get("skills_reorder_plan")
+    if isinstance(plan_ids, list):
+        for line_id in plan_ids:
+            if isinstance(line_id, str) and line_id in original_ids and line_id not in preferred:
+                preferred.append(line_id)
+    for line_id in original_ids:
+        if line_id not in preferred:
+            preferred.append(line_id)
+    return tuple(preferred)
+
+
+def _collect_skill_line_ids(resume_json: Dict[str, Any]) -> List[str]:
+    skills = resume_json.get("skills") if isinstance(resume_json.get("skills"), dict) else {}
+    lines = skills.get("lines") if isinstance(skills.get("lines"), list) else []
+    ids: List[str] = []
+    for line in lines:
+        if not isinstance(line, dict):
+            continue
+        line_id = line.get("line_id")
+        if isinstance(line_id, str) and line_id.strip():
+            ids.append(line_id)
+    return ids
+
+
+def _skill_line_budgets(
+    resume_json: Dict[str, Any],
+    budgets: Dict[str, Any],
+) -> Dict[str, int]:
+    budget_by_id = budgets.get("skills_line_max_chars")
+    effective: Dict[str, int] = {}
+    if isinstance(budget_by_id, dict):
+        for line_id, value in budget_by_id.items():
+            if isinstance(line_id, str) and isinstance(value, int) and value > 0:
+                effective[line_id] = value
+    skills = resume_json.get("skills") if isinstance(resume_json.get("skills"), dict) else {}
+    lines = skills.get("lines") if isinstance(skills.get("lines"), list) else []
+    for line in lines:
+        if not isinstance(line, dict):
+            continue
+        line_id = line.get("line_id")
+        text = line.get("text")
+        if isinstance(line_id, str) and isinstance(text, str):
+            effective.setdefault(line_id, len(text))
+    return effective
+
+
+def _preferred_skill_display(
+    term: str,
+    resume_texts: Sequence[str],
+    resume_signals: ResumeSignals,
+    evidence_entry: Any,
+) -> str:
+    exact_display = _find_display_in_texts(term, resume_texts)
+    if exact_display:
+        return exact_display
+
+    if term in _SKILL_DISPLAY_OVERRIDES:
+        return _SKILL_DISPLAY_OVERRIDES[term]
+
+    if evidence_entry is not None and evidence_entry.strongest_candidate is not None:
+        raw_term = evidence_entry.strongest_candidate.raw_term
+        if isinstance(raw_term, str):
+            raw_display = _find_display_in_texts(raw_term, resume_texts)
+            if raw_display and canonicalize_term(raw_display) == term and raw_display != raw_term:
+                return raw_display
+
+    for variant in resume_signals.term_variants.get(term, ()):
+        variant_display = _find_display_in_texts(variant, resume_texts)
+        if variant_display and canonicalize_term(variant_display) == term and variant_display == term:
+            return variant_display
+
+    return _canonical_skill_display(term)
+
+
+def _canonical_skill_display(term: str) -> str:
+    if term in _SKILL_DISPLAY_OVERRIDES:
+        return _SKILL_DISPLAY_OVERRIDES[term]
+    if any(ch in term for ch in ".#/"):
+        return term
+    words = []
+    for part in term.split():
+        if len(part) <= 3 and part.isalpha():
+            words.append(part.upper())
+        else:
+            words.append(part.capitalize())
+    return " ".join(words).strip()
+
+
+def _optimize_skill_line_segments(
+    segments: Sequence[str],
+    policy: SkillsATSOptimizationPolicy,
+) -> List[Dict[str, Any]]:
+    infos = _build_skill_segment_infos(segments, policy)
+    return sorted(
+        infos,
+        key=lambda info: (-info["score"], info["original_index"], normalize_text(info["text"])),
+    )
+
+
+def _build_skill_segment_infos(
+    segments: Sequence[str],
+    policy: SkillsATSOptimizationPolicy,
+) -> List[Dict[str, Any]]:
+    infos = [_analyze_skill_segment(segment, policy, index) for index, segment in enumerate(segments)]
+    counts: Dict[str, int] = {}
+    for info in infos:
+        primary_term = info.get("primary_term")
+        if isinstance(primary_term, str) and primary_term:
+            counts[primary_term] = counts.get(primary_term, 0) + 1
+    for info in infos:
+        primary_term = info.get("primary_term")
+        info["score"] = _score_skill_segment(
+            info,
+            policy,
+            duplicate_count=counts.get(primary_term, 0) if isinstance(primary_term, str) else 0,
+        )
+    return infos
+
+
+def _analyze_skill_segment(
+    segment: str,
+    policy: SkillsATSOptimizationPolicy,
+    original_index: int,
+) -> Dict[str, Any]:
+    stripped = segment.strip()
+    candidate_terms: List[str] = []
+    canonical_segment = canonicalize_term(stripped)
+    if canonical_segment:
+        candidate_terms.append(canonical_segment)
+    for canonical, _ in extract_canonical_term_pairs(stripped):
+        if canonical and canonical not in candidate_terms:
+            candidate_terms.append(canonical)
+
+    primary_term = ""
+    for term in candidate_terms:
+        if term in policy.term_policies:
+            primary_term = term
+            break
+    if not primary_term and candidate_terms:
+        primary_term = candidate_terms[0]
+
+    normalized = normalize_text(stripped)
+    is_soft = normalized in _SOFT_SKILL_TERMS or primary_term in _SOFT_SKILL_TERMS
+    is_hard = bool(
+        _segment_has_tool_like_token(stripped)
+        or _segment_has_technical_indicator(stripped)
+        or (primary_term and (_term_is_tool_like(primary_term) or _term_has_technical_indicator(primary_term)))
+    )
+    term_policy = policy.term_policies.get(primary_term) if primary_term else None
+    is_blocked = bool(term_policy and term_policy.is_blocked)
+    is_unsupported_ats = any(
+        term in policy.job_weights.weights_by_term
+        and term not in policy.allowed_surface_terms
+        and term not in policy.under_supported_terms
+        and term not in policy.blocked_terms
+        for term in candidate_terms
+    )
+    display_text = _preferred_skill_segment_display(
+        stripped,
+        primary_term,
+        candidate_terms,
+        policy,
+        is_unsupported_ats,
+    )
+    is_target_term = bool(
+        term_policy
+        and (
+            term_policy.is_supported_priority
+            or term_policy.is_skill_priority
+            or term_policy.is_recent_priority
+        )
+    )
+    return {
+        "source_text": stripped,
+        "text": display_text,
+        "normalized_text": normalize_text(display_text),
+        "primary_term": primary_term,
+        "canonical_terms": tuple(candidate_terms),
+        "is_soft": is_soft,
+        "is_hard": is_hard,
+        "is_blocked": is_blocked,
+        "is_under_supported": bool(term_policy and term_policy.is_under_supported),
+        "is_unsupported_ats": is_unsupported_ats,
+        "is_target_term": is_target_term,
+        "original_index": original_index,
+    }
+
+
+def _preferred_skill_segment_display(
+    original_segment: str,
+    primary_term: str,
+    candidate_terms: Sequence[str],
+    policy: SkillsATSOptimizationPolicy,
+    is_unsupported_ats: bool,
+) -> str:
+    if not primary_term or is_unsupported_ats:
+        return original_segment
+    term_policy = policy.term_policies.get(primary_term)
+    if term_policy is None or term_policy.is_blocked:
+        return original_segment
+    if canonicalize_term(original_segment) != normalize_text(original_segment):
+        return term_policy.display
+    if term_policy.is_supported_priority or term_policy.is_skill_priority:
+        return term_policy.display
+    if len(candidate_terms) > 1 and candidate_terms[0] != primary_term:
+        return term_policy.display
+    return original_segment
+
+
+def _score_skill_segment(
+    info: Dict[str, Any],
+    policy: SkillsATSOptimizationPolicy,
+    duplicate_count: int,
+) -> int:
+    if info.get("is_blocked"):
+        return -100000
+    if info.get("is_unsupported_ats"):
+        return -50000
+
+    primary_term = info.get("primary_term")
+    term_policy = policy.term_policies.get(primary_term) if isinstance(primary_term, str) and primary_term else None
+    if term_policy is not None:
+        if term_policy.is_supported_priority:
+            score = 3000
+        elif term_policy.is_allowed_surface:
+            score = 2600
+        elif term_policy.is_under_supported:
+            score = 1400
+        elif info.get("is_hard"):
+            score = 1700
+        elif info.get("is_soft"):
+            score = 800
+        else:
+            score = 900
+
+        score += term_policy.weight * 10
+        score += term_policy.support_score
+        if term_policy.has_recent_backing or term_policy.is_recent_priority:
+            score += 300
+        if term_policy.has_cross_section_backing:
+            score += 150
+        if term_policy.has_experience_backing:
+            score += 100
+        if term_policy.has_project_backing:
+            score += 75
+        if term_policy.is_skills_only:
+            score -= 200
+        if term_policy.missing_experience_backing:
+            score -= 125
+        if term_policy.priority_rank >= 0:
+            score += max(0, 180 - (term_policy.priority_rank * 4))
+        if term_policy.supported_rank >= 0:
+            score += max(0, 220 - (term_policy.supported_rank * 6))
+        if term_policy.recent_rank >= 0:
+            score += max(0, 160 - (term_policy.recent_rank * 8))
+    else:
+        if info.get("is_hard"):
+            score = 1700
+        elif info.get("is_soft"):
+            score = 800
+        else:
+            score = 900
+
+    if duplicate_count > 1:
+        score -= 250
+    return score
+
+
+def _surface_missing_priority_skill_terms(
+    line_states: List[Dict[str, Any]],
+    policy: SkillsATSOptimizationPolicy,
+    audit_log: Dict[str, Any],
+) -> None:
+    if not line_states:
+        return
+
+    state_by_id = {
+        state["line_id"]: state
+        for state in line_states
+        if isinstance(state.get("line_id"), str)
+    }
+    present_terms = {
+        info["primary_term"]
+        for state in line_states
+        for info in state.get("infos", [])
+        if isinstance(info, dict) and isinstance(info.get("primary_term"), str) and info.get("primary_term")
+    }
+
+    for term in _surface_priority_skill_order(policy):
+        if term in present_terms:
+            continue
+        term_policy = policy.term_policies.get(term)
+        if term_policy is None or not term_policy.is_allowed_surface or term_policy.is_under_supported:
+            continue
+        for line_id in policy.preferred_line_ids:
+            state = state_by_id.get(line_id)
+            if state is None:
+                continue
+            if _surface_priority_skill_in_line(state, term_policy, policy):
+                _update_skills_detail(audit_log, state["line_id"], state["line"]["text"], "priority_skill_surface")
+                present_terms.add(term)
+                break
+
+
+def _surface_priority_skill_order(policy: SkillsATSOptimizationPolicy) -> Tuple[str, ...]:
+    ordered: List[str] = []
+    for collection in (
+        policy.supported_priority_terms,
+        policy.recent_priority_terms,
+        policy.skill_priority_terms,
+    ):
+        for term in collection:
+            term_policy = policy.term_policies.get(term)
+            if term_policy is None:
+                continue
+            if term_policy.is_blocked or term_policy.is_under_supported or not term_policy.is_allowed_surface:
+                continue
+            _append_unique(ordered, term)
+    return tuple(ordered)
+
+
+def _surface_priority_skill_in_line(
+    state: Dict[str, Any],
+    term_policy: SkillTermPolicy,
+    policy: SkillsATSOptimizationPolicy,
+) -> bool:
+    infos = state.get("infos")
+    separator = state.get("separator")
+    budget = state.get("budget")
+    if not isinstance(infos, list) or not isinstance(separator, str) or not isinstance(budget, int):
+        return False
+    if any(info.get("primary_term") == term_policy.term for info in infos if isinstance(info, dict)):
+        return False
+
+    current_segments = [info["text"] for info in infos if isinstance(info, dict)]
+    candidate_infos = _optimize_skill_line_segments(current_segments + [term_policy.display], policy)
+    candidate_segments = [info["text"] for info in candidate_infos]
+    candidate_text = separator.join(candidate_segments)
+    if len(candidate_text) <= budget:
+        _apply_skill_line_candidate(state, candidate_infos, candidate_text)
+        return True
+
+    candidate_entry = _build_skill_segment_infos([term_policy.display], policy)[0]
+    for index in _replacement_indexes_for_skill_line(infos):
+        existing_info = infos[index]
+        if not isinstance(existing_info, dict):
+            continue
+        if _should_preserve_skill_segment(existing_info, policy):
+            continue
+        if existing_info.get("score", 0) >= candidate_entry.get("score", 0):
+            continue
+        replacement_segments = list(current_segments)
+        replacement_segments[index] = term_policy.display
+        replacement_infos = _optimize_skill_line_segments(replacement_segments, policy)
+        replacement_text = separator.join(info["text"] for info in replacement_infos)
+        if len(replacement_text) > budget:
+            continue
+        if term_policy.term not in {
+            info.get("primary_term") for info in replacement_infos if isinstance(info, dict)
+        }:
+            continue
+        _apply_skill_line_candidate(state, replacement_infos, replacement_text)
+        return True
+    return False
+
+
+def _apply_skill_line_candidate(
+    state: Dict[str, Any],
+    candidate_infos: List[Dict[str, Any]],
+    candidate_text: str,
+) -> None:
+    state["infos"] = candidate_infos
+    state["segments"] = [info["text"] for info in candidate_infos]
+    state["line"]["text"] = candidate_text
+
+
+def _replacement_indexes_for_skill_line(infos: Sequence[Dict[str, Any]]) -> List[int]:
+    indexed: List[Tuple[Tuple[int, int, int], int]] = []
+    for index, info in enumerate(infos):
+        if not isinstance(info, dict):
+            continue
+        if info.get("is_blocked") or info.get("is_unsupported_ats"):
+            priority = 0
+        elif info.get("is_under_supported"):
+            priority = 1
+        elif info.get("is_soft"):
+            priority = 2
+        elif not info.get("is_hard"):
+            priority = 3
+        else:
+            priority = 4
+        indexed.append(((priority, int(info.get("score", 0)), -index), index))
+    indexed.sort()
+    return [index for _, index in indexed]
+
+
+def _should_preserve_skill_segment(
+    info: Dict[str, Any],
+    policy: SkillsATSOptimizationPolicy,
+) -> bool:
+    primary_term = info.get("primary_term")
+    if not isinstance(primary_term, str) or not primary_term:
+        return False
+    term_policy = policy.term_policies.get(primary_term)
+    if term_policy is None:
+        return False
+    return bool(
+        term_policy.is_supported_priority
+        or (
+            term_policy.is_allowed_surface
+            and (term_policy.is_recent_priority or term_policy.has_recent_backing)
+        )
+    )
+
+
+def _validate_skills_optimization(
+    *,
+    original_text_by_id: Dict[str, str],
+    lines: List[Any],
+    policy: SkillsATSOptimizationPolicy,
+) -> List[str]:
+    errors: List[str] = []
+
+    final_ids = [
+        line.get("line_id")
+        for line in lines
+        if isinstance(line, dict) and isinstance(line.get("line_id"), str)
+    ]
+    original_ids = list(original_text_by_id.keys())
+    if len(lines) != len(original_ids):
+        errors.append("skills.lines count changed")
+        return errors
+    if final_ids != original_ids:
+        errors.append("skills.lines order or ids changed")
+
+    original_counts = _collect_skill_term_counts(original_text_by_id.values())
+    final_text_by_id: Dict[str, str] = {}
+    for line in lines:
+        if not isinstance(line, dict):
+            continue
+        line_id = line.get("line_id")
+        text = line.get("text")
+        if not isinstance(line_id, str) or not isinstance(text, str):
+            continue
+        final_text_by_id[line_id] = text
+        budget = policy.line_budget_by_id.get(line_id)
+        if isinstance(budget, int) and len(text) > budget:
+            errors.append(f"skills line {line_id} exceeds budget")
+
+    final_counts = _collect_skill_term_counts(final_text_by_id.values())
+    introduced_terms = sorted(
+        term for term, count in final_counts.items() if count > original_counts.get(term, 0)
+    )
+    blocked_introduced = sorted(term for term in introduced_terms if term in policy.blocked_terms)
+    if blocked_introduced:
+        errors.append(f"blocked skill terms introduced: {', '.join(blocked_introduced)}")
+
+    unsupported_introduced = sorted(
+        term
+        for term in introduced_terms
+        if term in policy.job_weights.weights_by_term
+        and term not in policy.allowed_surface_terms
+        and term not in policy.under_supported_terms
+    )
+    if unsupported_introduced:
+        errors.append(f"unsupported ATS skill terms introduced: {', '.join(unsupported_introduced)}")
+
+    for term, count in final_counts.items():
+        if count <= 1:
+            continue
+        if count > original_counts.get(term, 0):
+            errors.append(f"duplicate canonical skill variants introduced: {term}")
+
+    for line_id, final_text in final_text_by_id.items():
+        original_text = original_text_by_id.get(line_id, "")
+        if final_text == original_text:
+            continue
+        segments, _ = _split_skills_line(final_text)
+        optimized_segments = [info["text"] for info in _optimize_skill_line_segments(segments, policy)]
+        if optimized_segments != segments:
+            errors.append(f"skills line {line_id} violates ATS ordering")
+
+    return errors
+
+
+def _collect_skill_term_counts(texts: Iterable[str]) -> Dict[str, int]:
+    counts: Dict[str, int] = {}
+    for text in texts:
+        if not isinstance(text, str):
+            continue
+        segments, _ = _split_skills_line(text)
+        for segment in segments:
+            canonical = canonicalize_term(segment)
+            if canonical:
+                counts[canonical] = counts.get(canonical, 0) + 1
+    return counts
+
+
+def _restore_skill_lines_after_validation_failure(
+    line_states: Sequence[Dict[str, Any]],
+    original_text_by_id: Dict[str, str],
+    validation_errors: Sequence[str],
+    audit_log: Dict[str, Any],
+) -> None:
+    for state in line_states:
+        line = state.get("line")
+        line_id = state.get("line_id")
+        if not isinstance(line, dict) or not isinstance(line_id, str):
+            continue
+        original_text = original_text_by_id.get(line_id)
+        if not isinstance(original_text, str):
+            continue
+        line["text"] = original_text
+        _reject_skills_detail(audit_log, line_id, original_text, validation_errors)
+
+
+def _reject_skills_detail(
+    audit_log: Dict[str, Any],
+    line_id: str,
+    final_text: str,
+    validation_errors: Sequence[str],
+) -> None:
+    details = audit_log.get("skills_details")
+    if not isinstance(details, list):
+        return
+    for detail in reversed(details):
+        if isinstance(detail, dict) and detail.get("line_id") == line_id:
+            detail["final_text"] = final_text
+            detail["changed"] = False
+            detail["skip_reason"] = "skills_validation_rejected"
+            detail["reject_reason"] = "skills_validation"
+            detail["validation_errors"] = list(validation_errors)
+            return
 
 
 def _rewrite_bullets(
@@ -542,6 +1404,7 @@ def _rewrite_bullets(
     audit_log: Dict[str, Any],
 ) -> None:
     action_map = _build_action_map(tailoring_plan)
+    tailoring_ats_context = _build_tailoring_ats_context(tailoring_plan)
     bullet_budgets = budgets.get("bullets", {})
 
     experience = tailored.get("experience") if isinstance(tailored.get("experience"), list) else []
@@ -553,6 +1416,7 @@ def _rewrite_bullets(
             _rewrite_bullet(
                 bullet,
                 action_map,
+                tailoring_ats_context,
                 job_json,
                 provider,
                 allowed_vocab,
@@ -569,6 +1433,7 @@ def _rewrite_bullets(
             _rewrite_bullet(
                 bullet,
                 action_map,
+                tailoring_ats_context,
                 job_json,
                 provider,
                 allowed_vocab,
@@ -580,6 +1445,7 @@ def _rewrite_bullets(
 def _rewrite_bullet(
     bullet: Dict[str, Any],
     action_map: Dict[str, Dict[str, Any]],
+    tailoring_ats_context: TailoringATSContext,
     job_json: Dict[str, Any],
     provider: LLMProvider,
     allowed_vocab: Dict[str, Any],
@@ -595,6 +1461,9 @@ def _rewrite_bullet(
         "original_text": original_text,
         "rewrite_intent": None,
         "target_keywords": [],
+        "evidence_terms": [],
+        "source_section": None,
+        "ats_emphasis": None,
         "candidate_text": None,
         "final_text": None,
         "skip_reason": None,
@@ -620,58 +1489,120 @@ def _rewrite_bullet(
 
     target_keywords = action.get("target_keywords") if isinstance(action.get("target_keywords"), list) else []
     detail["target_keywords"] = list(target_keywords)
+    detail["evidence_terms"] = list(action.get("evidence_terms")) if isinstance(action.get("evidence_terms"), list) else []
+    detail["source_section"] = action.get("source_section") if isinstance(action.get("source_section"), str) else None
     if not target_keywords:
         audit_log["kept_bullets"].append(bullet_id)
         detail["skip_reason"] = "empty_target_keywords"
         _append_bullet_detail(audit_log, detail)
         return
 
+    ats_policy = _build_bullet_ats_policy(bullet_id, original_text, action, tailoring_ats_context)
+    detail["ats_emphasis"] = ats_policy.emphasis_strength
     budget = bullet_budgets.get(bullet_id)
 
-    rewritten_text, rejected, disallowed_terms = _call_bullet_rewrite(
+    rewritten_text, reject_reason, rejected_terms = _call_bullet_rewrite(
         bullet_id,
         original_text,
         job_json,
-        target_keywords,
+        ats_policy,
         allowed_vocab,
         provider,
         budget,
     )
-    if rejected:
+    if reject_reason:
         audit_log["rejected_for_new_terms"].append(bullet_id)
-        detail["reject_reason"] = "disallowed_terms"
-        if disallowed_terms:
-            detail["disallowed_terms"] = disallowed_terms
+        detail["reject_reason"] = reject_reason
+        if rejected_terms:
+            detail["disallowed_terms"] = rejected_terms
         _append_bullet_detail(audit_log, detail)
+        return
     if rewritten_text is None:
-        if not rejected:
-            audit_log["kept_bullets"].append(bullet_id)
-            detail["skip_reason"] = "llm_no_rewrite_or_rejected"
-            _append_bullet_detail(audit_log, detail)
+        audit_log["kept_bullets"].append(bullet_id)
+        detail["skip_reason"] = "llm_no_rewrite_or_rejected"
+        _append_bullet_detail(audit_log, detail)
         return
 
-    provider_len = len(rewritten_text)
     did_shorten = False
     detail["candidate_text"] = rewritten_text
-    compressed = _compress_text(original_text, rewritten_text, budget, provider)
-    if compressed is not None:
-        if len(compressed) < len(rewritten_text):
-            did_shorten = True
-        rewritten_text = compressed
+    if isinstance(budget, int) and len(rewritten_text) > budget:
+        compressed = _compress_text(
+            original_text,
+            rewritten_text,
+            budget,
+            provider,
+            preserve_terms=ats_policy.required_terms,
+            blocked_terms=ats_policy.blocked_terms,
+            emphasis_terms=ats_policy.surface_terms,
+        )
+        if compressed is not None:
+            if len(compressed) < len(rewritten_text):
+                did_shorten = True
+            rewritten_text = compressed
 
-        disallowed_after = _find_disallowed_terms(rewritten_text, allowed_vocab, target_keywords)
-        if disallowed_after:
-            audit_log["rejected_for_new_terms"].append(bullet_id)
-            detail["reject_reason"] = "disallowed_terms_after_compress"
-            detail["disallowed_terms"] = disallowed_after
-            _append_bullet_detail(audit_log, detail)
-            return
+            blocked_after = _find_blocked_terms_in_text(rewritten_text, ats_policy.blocked_terms)
+            if blocked_after:
+                audit_log["rejected_for_new_terms"].append(bullet_id)
+                detail["reject_reason"] = "blocked_terms_after_compress"
+                detail["disallowed_terms"] = blocked_after
+                _append_bullet_detail(audit_log, detail)
+                return
+            disallowed_after = _find_disallowed_terms(rewritten_text, allowed_vocab, ats_policy.requested_target_keywords)
+            if disallowed_after:
+                audit_log["rejected_for_new_terms"].append(bullet_id)
+                detail["reject_reason"] = "disallowed_terms_after_compress"
+                detail["disallowed_terms"] = disallowed_after
+                _append_bullet_detail(audit_log, detail)
+                return
+            unsupported_after = _find_unsupported_ats_terms(original_text, rewritten_text, ats_policy)
+            if unsupported_after:
+                audit_log["rejected_for_new_terms"].append(bullet_id)
+                detail["reject_reason"] = "unsupported_ats_terms_after_compress"
+                detail["disallowed_terms"] = unsupported_after
+                _append_bullet_detail(audit_log, detail)
+                return
+            missing_required_after = _find_missing_required_terms(rewritten_text, ats_policy.required_terms)
+            if missing_required_after:
+                audit_log["rejected_for_new_terms"].append(bullet_id)
+                detail["reject_reason"] = "missing_required_evidence_terms_after_compress"
+                detail["disallowed_terms"] = missing_required_after
+                _append_bullet_detail(audit_log, detail)
+                return
 
-    if len(rewritten_text) > budget:
+    if isinstance(budget, int) and len(rewritten_text) > budget:
         truncated = _truncate_to_budget(rewritten_text, budget)
         if len(truncated) < len(rewritten_text):
             did_shorten = True
         rewritten_text = truncated
+
+    blocked_after = _find_blocked_terms_in_text(rewritten_text, ats_policy.blocked_terms)
+    if blocked_after:
+        audit_log["rejected_for_new_terms"].append(bullet_id)
+        detail["reject_reason"] = "blocked_terms_after_budget"
+        detail["disallowed_terms"] = blocked_after
+        _append_bullet_detail(audit_log, detail)
+        return
+    disallowed_after = _find_disallowed_terms(rewritten_text, allowed_vocab, ats_policy.requested_target_keywords)
+    if disallowed_after:
+        audit_log["rejected_for_new_terms"].append(bullet_id)
+        detail["reject_reason"] = "disallowed_terms_after_budget"
+        detail["disallowed_terms"] = disallowed_after
+        _append_bullet_detail(audit_log, detail)
+        return
+    unsupported_after = _find_unsupported_ats_terms(original_text, rewritten_text, ats_policy)
+    if unsupported_after:
+        audit_log["rejected_for_new_terms"].append(bullet_id)
+        detail["reject_reason"] = "unsupported_ats_terms_after_budget"
+        detail["disallowed_terms"] = unsupported_after
+        _append_bullet_detail(audit_log, detail)
+        return
+    missing_required_after = _find_missing_required_terms(rewritten_text, ats_policy.required_terms)
+    if missing_required_after:
+        audit_log["rejected_for_new_terms"].append(bullet_id)
+        detail["reject_reason"] = "missing_required_evidence_terms_after_budget"
+        detail["disallowed_terms"] = missing_required_after
+        _append_bullet_detail(audit_log, detail)
+        return
 
     if did_shorten:
         _append_unique(audit_log["compressed"], bullet_id)
@@ -685,58 +1616,99 @@ def _call_bullet_rewrite(
     bullet_id: str,
     original_text: str,
     job_json: Dict[str, Any],
-    target_keywords: Sequence[str],
+    ats_policy: BulletATSRewritePolicy,
     allowed_vocab: Dict[str, Any],
     provider: LLMProvider,
     budget: Optional[int],
-) -> Tuple[Optional[str], bool, Optional[List[str]]]:
+) -> Tuple[Optional[str], Optional[str], Optional[List[str]]]:
     allowed_terms = allowed_vocab.get("terms", set())
     allowed_proper = allowed_vocab.get("proper_nouns", set())
-    allowed_target, missing_target = _split_target_keywords(target_keywords, allowed_terms)
+    requested_target_keywords = list(ats_policy.requested_target_keywords)
+    allowed_target, missing_target = _split_target_keywords(requested_target_keywords, allowed_terms)
+    surface_terms = list(ats_policy.surface_terms)
+    allowed_surface, missing_surface = _split_target_keywords(surface_terms, allowed_terms)
 
     payload = {
         "bullet_id": bullet_id,
         "original_text": original_text,
         "job_title": job_json.get("title"),
-        "target_keywords": list(target_keywords),
+        "source_section": ats_policy.source_section,
+        "target_keywords": requested_target_keywords,
+        "evidence_terms": list(ats_policy.evidence_terms),
+        "preferred_surface_terms": surface_terms,
+        "required_terms": list(ats_policy.required_terms),
+        "blocked_terms": list(ats_policy.blocked_terms),
+        "avoid_terms": list(ats_policy.avoid_terms),
+        "ats_emphasis": ats_policy.emphasis_strength,
+        "is_recent": ats_policy.is_recent,
+        "is_primary_evidence": ats_policy.is_primary_evidence,
+        "is_safe_for_ats": ats_policy.is_safe_for_ats,
         "allowed_target_keywords": allowed_target,
         "missing_target_keywords": missing_target,
-        "allowed_terms": _select_allowed_terms(allowed_terms, original_text, target_keywords),
+        "allowed_surface_terms": allowed_surface,
+        "missing_surface_terms": missing_surface,
+        "allowed_terms": _select_allowed_terms(
+            allowed_terms,
+            original_text,
+            requested_target_keywords + list(ats_policy.evidence_terms) + surface_terms,
+        ),
         "allowed_proper_nouns": _select_allowed_proper_nouns(allowed_proper, original_text),
     }
     if budget is not None:
         payload["max_chars"] = budget
 
     system_prompt = load_system_prompt("bullet_rewrite")
-    messages = build_llm_messages(system_prompt, json.dumps(payload, ensure_ascii=True), task_label="bullet_rewrite")
     config = get_config()
-    raw = provider.generate(messages, timeout=config.llm_timeout_seconds)
-    obj = _parse_llm_json(raw, "bullet_rewrite", provider)
-    if obj is None:
-        return None, False, None
+    for _ in range(2):
+        messages = build_llm_messages(system_prompt, json.dumps(payload, ensure_ascii=True), task_label="bullet_rewrite")
+        raw = provider.generate(messages, timeout=config.llm_timeout_seconds)
+        obj = _parse_llm_json(raw, "bullet_rewrite", provider)
+        if obj is None:
+            return None, None, None
 
-    if obj.get("bullet_id") != bullet_id:
-        return None, False, None
-    rewritten_text = obj.get("rewritten_text")
-    if not isinstance(rewritten_text, str):
-        return None, False, None
+        if obj.get("bullet_id") != bullet_id:
+            return None, None, None
+        rewritten_text = obj.get("rewritten_text")
+        if not isinstance(rewritten_text, str):
+            return None, None, None
 
-    disallowed = _find_disallowed_terms(rewritten_text, allowed_vocab, target_keywords)
-    if disallowed:
-        payload["disallowed_terms"] = disallowed
-        payload["retry_instruction"] = "Remove the disallowed terms. Do not replace them with new terms."
-        raw_retry = provider.generate(
-            build_llm_messages(system_prompt, json.dumps(payload, ensure_ascii=True), task_label="bullet_rewrite"),
-            timeout=config.llm_timeout_seconds,
-        )
-        obj_retry = _parse_llm_json(raw_retry, "bullet_rewrite", provider)
-        if obj_retry and obj_retry.get("bullet_id") == bullet_id and isinstance(obj_retry.get("rewritten_text"), str):
-            rewritten_text = obj_retry["rewritten_text"]
-            disallowed = _find_disallowed_terms(rewritten_text, allowed_vocab, target_keywords)
+        blocked_terms = _find_blocked_terms_in_text(rewritten_text, ats_policy.blocked_terms)
+        if blocked_terms:
+            payload["blocked_terms_found"] = blocked_terms
+            payload["retry_instruction"] = "Remove the blocked terms. Preserve only supported evidence-backed ATS terms."
+            continue
+
+        disallowed = _find_disallowed_terms(rewritten_text, allowed_vocab, requested_target_keywords)
         if disallowed:
-            return None, True, disallowed
+            payload["disallowed_terms"] = disallowed
+            payload["retry_instruction"] = "Remove the disallowed terms. Do not replace them with new terms."
+            continue
 
-    return rewritten_text, False, None
+        unsupported_terms = _find_unsupported_ats_terms(original_text, rewritten_text, ats_policy)
+        if unsupported_terms:
+            payload["unsupported_ats_terms"] = unsupported_terms
+            payload["retry_instruction"] = (
+                "Remove ATS terms that are not supported for this bullet. Keep only evidence-backed or allowed surface terms."
+            )
+            continue
+
+        missing_required_terms = _find_missing_required_terms(rewritten_text, ats_policy.required_terms)
+        if missing_required_terms:
+            payload["missing_required_terms"] = missing_required_terms
+            payload["retry_instruction"] = "Preserve the required evidence-backed ATS signal in the rewritten bullet."
+            continue
+
+        return rewritten_text, None, None
+
+    if isinstance(payload.get("blocked_terms_found"), list) and payload["blocked_terms_found"]:
+        return None, "blocked_terms", list(payload["blocked_terms_found"])
+    if isinstance(payload.get("disallowed_terms"), list) and payload["disallowed_terms"]:
+        return None, "disallowed_terms", list(payload["disallowed_terms"])
+    if isinstance(payload.get("unsupported_ats_terms"), list) and payload["unsupported_ats_terms"]:
+        return None, "unsupported_ats_terms", list(payload["unsupported_ats_terms"])
+    if isinstance(payload.get("missing_required_terms"), list) and payload["missing_required_terms"]:
+        return None, "missing_required_evidence_terms", list(payload["missing_required_terms"])
+    return None, None, None
 
 
 def _compress_text(
@@ -744,11 +1716,17 @@ def _compress_text(
     candidate_text: str,
     max_chars: int,
     provider: LLMProvider,
+    preserve_terms: Sequence[str] = (),
+    blocked_terms: Sequence[str] = (),
+    emphasis_terms: Sequence[str] = (),
 ) -> Optional[str]:
     payload = {
         "original_text": original_text,
         "candidate_text": candidate_text,
         "max_chars": max_chars,
+        "preserve_terms": list(preserve_terms),
+        "blocked_terms": list(blocked_terms),
+        "emphasis_terms": list(emphasis_terms),
     }
     system_prompt = load_system_prompt("compress_text")
     messages = build_llm_messages(system_prompt, json.dumps(payload, ensure_ascii=True), task_label="compress_text")
@@ -810,6 +1788,247 @@ def _split_target_keywords(target_keywords: Sequence[str], allowed_terms: Iterab
         else:
             missing.append(keyword)
     return allowed, missing
+
+
+def _build_tailoring_ats_context(tailoring_plan: Dict[str, Any]) -> TailoringATSContext:
+    supported_priority_terms = tuple(_normalize_ordered_terms(tailoring_plan.get("supported_priority_terms")))
+    under_supported_terms = tuple(
+        _normalize_ordered_terms(_extract_term_items(tailoring_plan.get("under_supported_terms")))
+    )
+    blocked_bullet_terms = tuple(
+        _normalize_ordered_terms(_extract_blocked_terms(tailoring_plan.get("blocked_terms"), "bullets"))
+    )
+    recent_priority_terms = tuple(_normalize_ordered_terms(tailoring_plan.get("recent_priority_terms")))
+    summary_alignment_terms = tuple(_normalize_ordered_terms(tailoring_plan.get("summary_alignment_terms")))
+    skill_priority_terms = tuple(_normalize_ordered_terms(tailoring_plan.get("skill_priority_terms")))
+
+    title_status = tailoring_plan.get("title_alignment_status")
+    if isinstance(title_status, dict):
+        title_supported_terms = tuple(_normalize_ordered_terms(title_status.get("supported_terms")))
+        title_missing_terms = tuple(_normalize_ordered_terms(title_status.get("missing_tokens")))
+        title_alignment_safe = bool(title_status.get("is_safe_for_summary_alignment"))
+    else:
+        title_supported_terms = ()
+        title_missing_terms = ()
+        title_alignment_safe = False
+
+    plan_terms = frozenset(
+        supported_priority_terms
+        + under_supported_terms
+        + blocked_bullet_terms
+        + recent_priority_terms
+        + summary_alignment_terms
+        + skill_priority_terms
+        + title_supported_terms
+        + title_missing_terms
+    )
+    avoid_terms = frozenset(blocked_bullet_terms + under_supported_terms + title_missing_terms)
+    return TailoringATSContext(
+        supported_priority_terms=supported_priority_terms,
+        under_supported_terms=under_supported_terms,
+        blocked_bullet_terms=blocked_bullet_terms,
+        recent_priority_terms=recent_priority_terms,
+        summary_alignment_terms=summary_alignment_terms,
+        skill_priority_terms=skill_priority_terms,
+        title_supported_terms=title_supported_terms,
+        title_missing_terms=title_missing_terms,
+        title_alignment_safe=title_alignment_safe,
+        plan_terms=plan_terms,
+        avoid_terms=avoid_terms,
+    )
+
+
+def _build_bullet_ats_policy(
+    bullet_id: str,
+    original_text: str,
+    action: Dict[str, Any],
+    tailoring_ats_context: TailoringATSContext,
+) -> BulletATSRewritePolicy:
+    requested_target_keywords = tuple(_ordered_prompt_terms(action.get("target_keywords")))
+    evidence_terms = tuple(_ordered_prompt_terms(action.get("evidence_terms")))
+    evidence_term_set = frozenset(_normalize_ordered_terms(evidence_terms))
+    original_term_set = _extract_canonical_terms(original_text)
+    blocked_term_set = frozenset(tailoring_ats_context.blocked_bullet_terms)
+
+    safe_target_terms: List[str] = []
+    safe_target_set: Set[str] = set()
+    for keyword in requested_target_keywords:
+        canonical = canonicalize_term(keyword)
+        if not canonical or canonical in blocked_term_set:
+            continue
+        if (
+            canonical in evidence_term_set
+            or canonical in original_term_set
+            or canonical in tailoring_ats_context.supported_priority_terms
+        ):
+            if canonical not in safe_target_set:
+                safe_target_terms.append(canonical)
+                safe_target_set.add(canonical)
+
+    evidence_surface_terms: List[str] = []
+    for term in evidence_terms:
+        canonical = canonicalize_term(term)
+        if canonical and canonical not in blocked_term_set:
+            _append_unique(evidence_surface_terms, canonical)
+
+    ordered_targets = list(safe_target_terms)
+    recent_priority = set(tailoring_ats_context.recent_priority_terms)
+    if recent_priority:
+        ordered_targets.sort(key=lambda term: (term not in recent_priority, term not in evidence_term_set, term))
+    surface_terms: List[str] = list(evidence_surface_terms)
+    for term in ordered_targets:
+        _append_unique(surface_terms, term)
+
+    is_recent = bool(action.get("is_recent"))
+    is_primary_evidence = bool(action.get("is_primary_evidence"))
+    is_safe_for_ats = bool(action.get("is_safe_for_ats"))
+
+    required_terms: List[str] = []
+    for term in surface_terms:
+        if term in original_term_set:
+            _append_unique(required_terms, term)
+    if not required_terms and is_recent and is_primary_evidence and is_safe_for_ats and surface_terms:
+        required_terms.append(surface_terms[0])
+
+    emphasis_strength = "light"
+    if surface_terms and is_recent and is_primary_evidence:
+        emphasis_strength = "strong"
+    elif surface_terms and (is_recent or is_primary_evidence or is_safe_for_ats):
+        emphasis_strength = "medium"
+
+    return BulletATSRewritePolicy(
+        bullet_id=bullet_id,
+        source_section=action.get("source_section") if isinstance(action.get("source_section"), str) else None,
+        requested_target_keywords=requested_target_keywords,
+        evidence_terms=tuple(evidence_surface_terms),
+        safe_target_terms=tuple(safe_target_terms),
+        surface_terms=tuple(surface_terms),
+        blocked_terms=tailoring_ats_context.blocked_bullet_terms,
+        avoid_terms=tuple(term for term in tailoring_ats_context.avoid_terms if term not in surface_terms),
+        required_terms=tuple(required_terms),
+        allowed_new_terms=frozenset(surface_terms),
+        blocked_term_set=blocked_term_set,
+        plan_term_set=tailoring_ats_context.plan_terms,
+        is_recent=is_recent,
+        is_primary_evidence=is_primary_evidence,
+        is_safe_for_ats=is_safe_for_ats,
+        emphasis_strength=emphasis_strength,
+    )
+
+
+def _extract_term_items(items: Any) -> List[str]:
+    if not isinstance(items, list):
+        return []
+    extracted: List[str] = []
+    for item in items:
+        if isinstance(item, dict):
+            value = item.get("term")
+        else:
+            value = item
+        if isinstance(value, str):
+            extracted.append(value)
+    return extracted
+
+
+def _extract_blocked_terms(items: Any, blocked_for: str) -> List[str]:
+    if not isinstance(items, list):
+        return []
+    blocked: List[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        term = item.get("term")
+        scopes = item.get("blocked_for")
+        if not isinstance(term, str) or not isinstance(scopes, list):
+            continue
+        if blocked_for in scopes:
+            blocked.append(term)
+    return blocked
+
+
+def _ordered_prompt_terms(terms: Any) -> List[str]:
+    if not isinstance(terms, list):
+        return []
+    ordered: List[str] = []
+    for term in terms:
+        if not isinstance(term, str):
+            continue
+        value = term.strip()
+        if value and value not in ordered:
+            ordered.append(value)
+    return ordered
+
+
+def _normalize_ordered_terms(terms: Any) -> List[str]:
+    ordered: List[str] = []
+    if not isinstance(terms, (list, tuple)):
+        return ordered
+    for term in terms:
+        if not isinstance(term, str):
+            continue
+        canonical = canonicalize_term(term)
+        if canonical and canonical not in ordered:
+            ordered.append(canonical)
+    return ordered
+
+
+def _extract_canonical_terms(text: str) -> FrozenSet[str]:
+    terms = {canonical for canonical, _ in extract_canonical_term_pairs(text) if canonical}
+    return frozenset(terms)
+
+
+def _contains_canonical_term(text: str, canonical_term: str) -> bool:
+    if not canonical_term:
+        return False
+    if canonical_term in _extract_canonical_terms(text):
+        return True
+    normalized_text = normalize_ats_text(text)
+    return _contains_phrase(normalized_text, canonical_term)
+
+
+def _find_blocked_terms_in_text(text: str, blocked_terms: Iterable[str]) -> List[str]:
+    hits: List[str] = []
+    for term in blocked_terms:
+        canonical = canonicalize_term(term)
+        if canonical and _contains_canonical_term(text, canonical):
+            _append_unique(hits, canonical)
+    return hits
+
+
+def _find_unsupported_ats_terms(
+    original_text: str,
+    rewritten_text: str,
+    policy: BulletATSRewritePolicy,
+) -> List[str]:
+    original_terms = _extract_canonical_terms(original_text)
+    rewritten_terms = _extract_canonical_terms(rewritten_text)
+    introduced_plan_terms = [
+        term
+        for term in sorted(rewritten_terms - original_terms)
+        if term in policy.plan_term_set and term not in policy.allowed_new_terms and term not in policy.blocked_term_set
+    ]
+
+    original_guard_terms = set(_extract_tool_like_terms(original_text))
+    rewritten_guard_terms = set(_extract_tool_like_terms(rewritten_text))
+    introduced_guard_terms = [
+        term
+        for term in sorted(rewritten_guard_terms - original_guard_terms)
+        if term not in policy.allowed_new_terms
+    ]
+
+    unsupported: List[str] = []
+    for term in introduced_plan_terms + introduced_guard_terms:
+        _append_unique(unsupported, term)
+    return unsupported
+
+
+def _find_missing_required_terms(text: str, required_terms: Sequence[str]) -> List[str]:
+    if not required_terms:
+        return []
+    present = [term for term in required_terms if _contains_canonical_term(text, term)]
+    if present:
+        return []
+    return list(required_terms)
 
 
 def _find_disallowed_terms(
@@ -1612,8 +2831,8 @@ def _compare_skills(original: Dict[str, Any], tailored: Dict[str, Any], errors: 
         return
     original_ids = [line.get("line_id") for line in original_lines if isinstance(line, dict)]
     tailored_ids = [line.get("line_id") for line in tailored_lines if isinstance(line, dict)]
-    if sorted(original_ids) != sorted(tailored_ids):
-        errors.append("skills.lines ids changed")
+    if original_ids != tailored_ids:
+        errors.append("skills.lines order or ids changed")
 
 
 def _compare_experience(original: Dict[str, Any], tailored: Dict[str, Any], errors: List[str]) -> None:

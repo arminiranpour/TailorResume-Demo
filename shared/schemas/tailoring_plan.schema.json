@@ -14,6 +14,14 @@
         "properties": {
           "bullet_id": { "type": "string", "minLength": 1 },
           "rewrite_intent": { "type": "string", "minLength": 1 },
+          "evidence_terms": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "source_section": { "type": "string", "minLength": 1 },
+          "is_recent": { "type": "boolean" },
+          "is_primary_evidence": { "type": "boolean" },
+          "is_safe_for_ats": { "type": "boolean" },
           "target_keywords": {
             "type": "array",
             "items": { "type": "string" }
@@ -53,6 +61,15 @@
           "required": ["rewrite_intent", "target_keywords"],
           "properties": {
             "rewrite_intent": { "type": "string", "minLength": 1 },
+            "title_alignment_safe": { "type": "boolean" },
+            "title_terms": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "blocked_terms": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
             "target_keywords": {
               "type": "array",
               "items": { "type": "string" }
@@ -60,6 +77,82 @@
           }
         }
       ]
+    },
+    "supported_priority_terms": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "under_supported_terms": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["term", "priority_bucket", "safe_for", "reason"],
+        "properties": {
+          "term": { "type": "string", "minLength": 1 },
+          "priority_bucket": { "type": "string", "minLength": 1 },
+          "safe_for": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "reason": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "blocked_terms": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["term", "priority_bucket", "blocked_for", "reason"],
+        "properties": {
+          "term": { "type": "string", "minLength": 1 },
+          "priority_bucket": { "type": "string", "minLength": 1 },
+          "blocked_for": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "reason": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "recent_priority_terms": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "summary_alignment_terms": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "skill_priority_terms": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "title_alignment_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "is_title_supported",
+        "is_safe_for_summary_alignment",
+        "alignment_strength",
+        "supported_terms",
+        "missing_tokens",
+        "strongest_matching_resume_title"
+      ],
+      "properties": {
+        "is_title_supported": { "type": "boolean" },
+        "is_safe_for_summary_alignment": { "type": "boolean" },
+        "alignment_strength": { "type": "string", "minLength": 1 },
+        "supported_terms": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "missing_tokens": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "strongest_matching_resume_title": { "type": ["string", "null"] }
+      }
     }
   }
 }

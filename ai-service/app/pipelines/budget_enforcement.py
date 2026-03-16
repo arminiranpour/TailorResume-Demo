@@ -14,7 +14,7 @@ from app.prompts.loader import load_system_prompt
 from app.providers.base import LLMProvider
 from app.schemas.validator import validate_json
 from app.security.untrusted import build_llm_messages
-from shared.scoring.normalize import normalize_text, tokenize
+from app.scoring_normalize import normalize_text, tokenize
 
 
 @dataclass

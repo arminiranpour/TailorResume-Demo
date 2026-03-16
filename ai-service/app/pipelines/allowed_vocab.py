@@ -4,7 +4,7 @@ import re
 import unicodedata
 from typing import Any, Dict, Iterable, List, Set
 
-from shared.scoring.normalize import generate_ngrams, normalize_text, tokenize
+from app.scoring_normalize import generate_ngrams, normalize_text, tokenize
 
 _TOKEN_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9#.+-]*")
 _TRAILING_PERIODS = "."
