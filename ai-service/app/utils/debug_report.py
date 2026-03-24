@@ -1,7 +1,7 @@
 import json
 from typing import Any, Dict, List, Optional
 
-from shared.scoring import build_resume_index
+from app.scoring import build_resume_index
 
 _REPORT_DIVIDER = "=" * 50
 

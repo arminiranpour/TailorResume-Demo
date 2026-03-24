@@ -1,6 +1,6 @@
 from typing import Any, Dict
 
-from shared.scoring import score_job
+from app.scoring import score_job
 
 
 def run_scoring(resume_json: Dict[str, Any], job_json: Dict[str, Any]) -> Dict[str, Any]:

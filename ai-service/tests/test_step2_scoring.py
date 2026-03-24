@@ -1,11 +1,11 @@
 import os
 import sys
 
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from shared.scoring import score_job
+from app.scoring import score_job
 
 
 def build_resume(summary_text, skills_texts, title):

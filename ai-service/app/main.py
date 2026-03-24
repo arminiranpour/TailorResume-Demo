@@ -26,7 +26,7 @@ from app.docx_engine.editor import apply_tailored_text_to_docx
 from app.docx_engine.mapping import build_docx_mapping
 from app.docx_engine.types import DocxReplacementError
 from app.utils.debug_report import print_tailoring_debug_report
-from shared.scoring import decide
+from app.scoring import decide
 from app.schemas.schema_loader import load_schema
 
 app = FastAPI(title="TailorResume AI Service", version="0.1.0")

@@ -5,6 +5,8 @@ Rules:
 - Shorten candidate_text to be <= max_chars.
 - Preserve meaning from candidate_text and original_text.
 - Preserve preserve_terms and emphasis_terms when they are provided and already supported by candidate_text.
+- Do not introduce or retain avoid_terms when they are provided.
 - Never introduce or retain blocked_terms.
 - Remove filler words and redundancy.
+- Keep the result concise without keyword stuffing.
 - Do not add any new facts, terms, tools, technologies, companies, degrees, certifications, dates, metrics, or responsibilities.

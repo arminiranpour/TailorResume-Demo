@@ -86,6 +86,24 @@ class BulletATSRewritePolicy:
 
 
 @dataclass(frozen=True)
+class SummaryATSRewritePolicy:
+    requested_target_keywords: Tuple[str, ...]
+    preferred_surface_terms: Tuple[str, ...]
+    safe_title_terms: Tuple[str, ...]
+    unsafe_title_terms: Tuple[str, ...]
+    supported_priority_terms: Tuple[str, ...]
+    recent_priority_terms: Tuple[str, ...]
+    required_terms: Tuple[str, ...]
+    blocked_terms: Tuple[str, ...]
+    avoid_terms: Tuple[str, ...]
+    allowed_new_terms: FrozenSet[str]
+    blocked_term_set: FrozenSet[str]
+    significant_terms: FrozenSet[str]
+    title_missing_terms: Tuple[str, ...]
+    title_alignment_safe: bool
+
+
+@dataclass(frozen=True)
 class SkillTermPolicy:
     term: str
     display: str
@@ -290,7 +308,17 @@ def rewrite_resume_text_with_audit(
         "skills_details": [],
     }
 
-    _rewrite_summary(tailored, job_json, tailoring_plan, provider, allowed_vocab, budgets, audit_log)
+    _rewrite_summary(
+        tailored,
+        resume_json,
+        job_json,
+        score_result,
+        tailoring_plan,
+        provider,
+        allowed_vocab,
+        budgets,
+        audit_log,
+    )
     _reorder_skills(tailored, tailoring_plan)
     _tailor_skill_lines(
         tailored,
@@ -415,7 +443,9 @@ def _iter_bullet_texts(resume_json: Dict[str, Any]) -> Iterable[Tuple[str, str]]
 
 def _rewrite_summary(
     tailored: Dict[str, Any],
+    source_resume_json: Dict[str, Any],
     job_json: Dict[str, Any],
+    score_result: Dict[str, Any],
     tailoring_plan: Dict[str, Any],
     provider: LLMProvider,
     allowed_vocab: Dict[str, Any],
@@ -430,6 +460,14 @@ def _rewrite_summary(
         "final_text": None,
         "skip_reason": None,
         "reject_reason": None,
+        "disallowed_terms": [],
+        "preferred_surface_terms": [],
+        "required_terms": [],
+        "supported_priority_terms": [],
+        "recent_priority_terms": [],
+        "allowed_title_terms": [],
+        "blocked_terms": [],
+        "blocked_title_terms": [],
         "changed": False,
         "fallback_used": False,
         "fallback_reason": None,
@@ -455,12 +493,30 @@ def _rewrite_summary(
         audit_log["summary_detail"] = summary_detail
         return
     summary_detail["original_text"] = original_text
-    summary_detail["target_keywords"] = list(target_keywords)
+    summary_policy = _build_summary_ats_policy(
+        source_resume_json,
+        job_json,
+        score_result,
+        tailoring_plan,
+        original_text,
+    )
+    if summary_policy is not None:
+        summary_detail["target_keywords"] = list(summary_policy.requested_target_keywords)
+        summary_detail["preferred_surface_terms"] = list(summary_policy.preferred_surface_terms)
+        summary_detail["required_terms"] = list(summary_policy.required_terms)
+        summary_detail["supported_priority_terms"] = list(summary_policy.supported_priority_terms)
+        summary_detail["recent_priority_terms"] = list(summary_policy.recent_priority_terms)
+        summary_detail["allowed_title_terms"] = list(summary_policy.safe_title_terms)
+        summary_detail["blocked_terms"] = list(summary_policy.blocked_terms)
+        summary_detail["blocked_title_terms"] = list(summary_policy.unsafe_title_terms)
+    else:
+        summary_detail["target_keywords"] = list(target_keywords)
 
     budget = budgets.get("summary")
-    rewritten_text, reject_reason = _call_summary_rewrite(
+    rewritten_text, reject_reason, rejected_terms = _call_summary_rewrite(
         original_text,
         job_json,
+        summary_policy,
         target_keywords,
         allowed_vocab,
         provider,
@@ -470,6 +526,8 @@ def _rewrite_summary(
     summary_detail["candidate_text"] = rewritten_text
     if reject_reason:
         summary_detail["reject_reason"] = reject_reason
+    if rejected_terms:
+        summary_detail["disallowed_terms"] = list(rejected_terms)
     if _needs_summary_fallback(original_text, rewritten_text, reject_reason):
         summary_detail["fallback_used"] = True
         summary_detail["fallback_reason"] = _fallback_reason(original_text, rewritten_text, reject_reason)
@@ -485,18 +543,66 @@ def _rewrite_summary(
         summary_detail["skip_reason"] = "llm_no_rewrite_or_rejected"
         audit_log["summary_detail"] = summary_detail
         return
+    reject_reason_after, rejected_terms_after = _validate_summary_candidate(
+        original_text,
+        rewritten_text,
+        summary_policy,
+        allowed_vocab,
+        target_keywords,
+    )
+    if reject_reason_after:
+        summary_detail["reject_reason"] = reject_reason_after
+        summary_detail["disallowed_terms"] = list(rejected_terms_after)
+        audit_log["summary_detail"] = summary_detail
+        return
     if budget is not None and len(rewritten_text) > budget:
-        compressed = _compress_text(original_text, rewritten_text, budget, provider)
+        preserve_terms = summary_policy.required_terms if summary_policy is not None else ()
+        blocked_terms = ()
+        emphasis_terms = ()
+        avoid_terms = ()
+        if summary_policy is not None:
+            blocked_terms = summary_policy.blocked_terms + summary_policy.unsafe_title_terms
+            emphasis_terms = summary_policy.preferred_surface_terms
+            avoid_terms = summary_policy.avoid_terms
+        compressed = _compress_text(
+            original_text,
+            rewritten_text,
+            budget,
+            provider,
+            preserve_terms=preserve_terms,
+            blocked_terms=blocked_terms,
+            emphasis_terms=emphasis_terms,
+            avoid_terms=avoid_terms,
+        )
         if compressed is not None:
             rewritten_text = compressed
-            disallowed_after = _find_disallowed_terms(rewritten_text, allowed_vocab, target_keywords)
-            if disallowed_after:
-                summary_detail["reject_reason"] = "disallowed_terms_after_compress"
-                summary_detail["disallowed_terms"] = disallowed_after
+            reject_reason_after, rejected_terms_after = _validate_summary_candidate(
+                original_text,
+                rewritten_text,
+                summary_policy,
+                allowed_vocab,
+                target_keywords,
+            )
+            if reject_reason_after:
+                summary_detail["reject_reason"] = f"{reject_reason_after}_after_compress"
+                summary_detail["disallowed_terms"] = list(rejected_terms_after)
                 audit_log["summary_detail"] = summary_detail
                 return
+            _append_unique(audit_log["compressed"], "summary")
         if budget is not None and len(rewritten_text) > budget:
             rewritten_text = _truncate_to_budget(rewritten_text, budget)
+            reject_reason_after, rejected_terms_after = _validate_summary_candidate(
+                original_text,
+                rewritten_text,
+                summary_policy,
+                allowed_vocab,
+                target_keywords,
+            )
+            if reject_reason_after:
+                summary_detail["reject_reason"] = f"{reject_reason_after}_after_budget"
+                summary_detail["disallowed_terms"] = list(rejected_terms_after)
+                audit_log["summary_detail"] = summary_detail
+                return
     if _is_effectively_same(original_text, rewritten_text):
         summary_detail["skip_reason"] = "final_identical"
         audit_log["summary_detail"] = summary_detail
@@ -510,22 +616,45 @@ def _rewrite_summary(
 def _call_summary_rewrite(
     original_text: str,
     job_json: Dict[str, Any],
+    summary_policy: Optional[SummaryATSRewritePolicy],
     target_keywords: Sequence[str],
     allowed_vocab: Dict[str, Any],
     provider: LLMProvider,
     budget: Optional[int],
     force_change: bool = False,
-) -> Tuple[Optional[str], Optional[str]]:
+) -> Tuple[Optional[str], Optional[str], Optional[List[str]]]:
     allowed_terms = allowed_vocab.get("terms", set())
     allowed_proper = allowed_vocab.get("proper_nouns", set())
-    allowed_target, missing_target = _split_target_keywords(target_keywords, allowed_terms)
+    requested_target_keywords = (
+        list(summary_policy.requested_target_keywords)
+        if summary_policy is not None
+        else list(_normalize_ordered_terms(target_keywords))
+    )
+    preferred_surface_terms = list(summary_policy.preferred_surface_terms) if summary_policy is not None else []
+    allowed_target, missing_target = _split_target_keywords(requested_target_keywords, allowed_terms)
+    allowed_surface, missing_surface = _split_target_keywords(preferred_surface_terms, allowed_terms)
     payload = {
         "original_text": original_text,
         "job_title": job_json.get("title"),
-        "target_keywords": list(target_keywords),
+        "target_keywords": requested_target_keywords,
         "allowed_target_keywords": allowed_target,
         "missing_target_keywords": missing_target,
-        "allowed_terms": _select_allowed_terms(allowed_terms, original_text, target_keywords),
+        "preferred_surface_terms": preferred_surface_terms,
+        "required_supported_terms": list(summary_policy.required_terms) if summary_policy is not None else [],
+        "supported_priority_terms": list(summary_policy.supported_priority_terms) if summary_policy is not None else [],
+        "recent_preferred_terms": list(summary_policy.recent_priority_terms) if summary_policy is not None else [],
+        "allowed_title_terms": list(summary_policy.safe_title_terms) if summary_policy is not None else [],
+        "blocked_title_terms": list(summary_policy.unsafe_title_terms) if summary_policy is not None else [],
+        "blocked_terms": list(summary_policy.blocked_terms) if summary_policy is not None else [],
+        "avoid_terms": list(summary_policy.avoid_terms) if summary_policy is not None else [],
+        "title_alignment_safe": bool(summary_policy.title_alignment_safe) if summary_policy is not None else False,
+        "allowed_surface_terms": allowed_surface,
+        "missing_surface_terms": missing_surface,
+        "allowed_terms": _select_allowed_terms(
+            allowed_terms,
+            original_text,
+            requested_target_keywords + preferred_surface_terms,
+        ),
         "allowed_proper_nouns": _select_allowed_proper_nouns(allowed_proper, original_text),
         "force_change": force_change,
     }
@@ -533,32 +662,360 @@ def _call_summary_rewrite(
         payload["max_chars"] = budget
 
     system_prompt = load_system_prompt("summary_rewrite")
-    messages = build_llm_messages(system_prompt, json.dumps(payload, ensure_ascii=True), task_label="summary_rewrite")
     config = get_config()
-    raw = provider.generate(messages, timeout=config.llm_timeout_seconds)
-    obj = _parse_llm_json(raw, "summary_rewrite", provider)
-    if obj is None:
-        return None, "invalid_response"
-    rewritten_text = obj.get("rewritten_text")
-    if not isinstance(rewritten_text, str):
-        return None, "invalid_text"
+    for _ in range(2):
+        messages = build_llm_messages(system_prompt, json.dumps(payload, ensure_ascii=True), task_label="summary_rewrite")
+        raw = provider.generate(messages, timeout=config.llm_timeout_seconds)
+        obj = _parse_llm_json(raw, "summary_rewrite", provider)
+        if obj is None:
+            return None, "invalid_response", None
+        rewritten_text = obj.get("rewritten_text")
+        if not isinstance(rewritten_text, str):
+            return None, "invalid_text", None
 
-    disallowed = _find_disallowed_terms(rewritten_text, allowed_vocab, target_keywords)
-    if disallowed:
-        payload["disallowed_terms"] = disallowed
-        payload["retry_instruction"] = "Remove the disallowed terms. Do not replace them with new terms."
-        raw_retry = provider.generate(
-            build_llm_messages(system_prompt, json.dumps(payload, ensure_ascii=True), task_label="summary_rewrite"),
-            timeout=config.llm_timeout_seconds,
+        reject_reason, rejected_terms = _validate_summary_candidate(
+            original_text,
+            rewritten_text,
+            summary_policy,
+            allowed_vocab,
+            requested_target_keywords,
         )
-        obj_retry = _parse_llm_json(raw_retry, "summary_rewrite", provider)
-        if obj_retry and isinstance(obj_retry.get("rewritten_text"), str):
-            rewritten_text = obj_retry["rewritten_text"]
-            disallowed = _find_disallowed_terms(rewritten_text, allowed_vocab, target_keywords)
-        if disallowed:
-            return None, "disallowed_terms"
+        if reject_reason == "unsafe_title_alignment":
+            payload["blocked_title_terms_found"] = rejected_terms
+            payload["retry_instruction"] = (
+                "Remove unsafe title-alignment phrasing. Only use allowed_title_terms when title_alignment_safe is true."
+            )
+            continue
+        if reject_reason == "blocked_terms":
+            payload["blocked_terms_found"] = rejected_terms
+            payload["retry_instruction"] = "Remove the blocked summary terms. Preserve only supported ATS terms."
+            continue
+        if reject_reason == "disallowed_terms":
+            payload["disallowed_terms"] = rejected_terms
+            payload["retry_instruction"] = "Remove the disallowed terms. Do not replace them with new terms."
+            continue
+        if reject_reason == "unsupported_ats_terms":
+            payload["unsupported_ats_terms"] = rejected_terms
+            payload["retry_instruction"] = (
+                "Remove ATS-significant terms that are not supported for the summary. Keep only preferred_surface_terms and safe title terms."
+            )
+            continue
+        if reject_reason == "missing_required_summary_terms":
+            payload["missing_required_terms"] = rejected_terms
+            payload["retry_instruction"] = "Preserve at least one required supported ATS signal in the rewritten summary."
+            continue
 
-    return rewritten_text, None
+        return rewritten_text, None, None
+
+    if isinstance(payload.get("blocked_title_terms_found"), list) and payload["blocked_title_terms_found"]:
+        return None, "unsafe_title_alignment", list(payload["blocked_title_terms_found"])
+    if isinstance(payload.get("blocked_terms_found"), list) and payload["blocked_terms_found"]:
+        return None, "blocked_terms", list(payload["blocked_terms_found"])
+    if isinstance(payload.get("disallowed_terms"), list) and payload["disallowed_terms"]:
+        return None, "disallowed_terms", list(payload["disallowed_terms"])
+    if isinstance(payload.get("unsupported_ats_terms"), list) and payload["unsupported_ats_terms"]:
+        return None, "unsupported_ats_terms", list(payload["unsupported_ats_terms"])
+    if isinstance(payload.get("missing_required_terms"), list) and payload["missing_required_terms"]:
+        return None, "missing_required_summary_terms", list(payload["missing_required_terms"])
+    return None, None, None
+
+
+def _build_summary_ats_policy(
+    resume_json: Dict[str, Any],
+    job_json: Dict[str, Any],
+    score_result: Dict[str, Any],
+    tailoring_plan: Dict[str, Any],
+    original_text: str,
+) -> Optional[SummaryATSRewritePolicy]:
+    summary_plan = tailoring_plan.get("summary_rewrite")
+    if not isinstance(summary_plan, dict):
+        return None
+    if score_result.get("decision") != "PROCEED":
+        return None
+
+    job_signals = extract_job_signals(job_json)
+    resume_signals = extract_resume_signals(resume_json)
+    job_weights = build_job_weights(job_signals)
+    coverage = build_coverage_model(job_signals, resume_signals, job_weights)
+    evidence_links = build_evidence_links(job_signals, resume_signals, job_weights, coverage)
+    title_alignment = build_title_alignment(
+        job_signals=job_signals,
+        resume_signals=resume_signals,
+        job_weights=job_weights,
+        coverage=coverage,
+        evidence_links=evidence_links,
+    )
+    recency = build_recency_priorities(
+        job_signals=job_signals,
+        resume_signals=resume_signals,
+        job_weights=job_weights,
+        coverage=coverage,
+        evidence_links=evidence_links,
+        title_alignment=title_alignment,
+    )
+
+    title_status = tailoring_plan.get("title_alignment_status")
+    title_alignment_safe = title_alignment.is_safe_for_summary_alignment
+    if isinstance(title_status, dict) and isinstance(title_status.get("is_safe_for_summary_alignment"), bool):
+        title_alignment_safe = bool(title_status.get("is_safe_for_summary_alignment"))
+    if isinstance(summary_plan.get("title_alignment_safe"), bool):
+        title_alignment_safe = bool(summary_plan.get("title_alignment_safe"))
+
+    requested_target_keywords = tuple(_normalize_ordered_terms(summary_plan.get("target_keywords")))
+    under_supported_terms = tuple(
+        _normalize_ordered_terms(_extract_term_items(tailoring_plan.get("under_supported_terms")))
+    )
+    under_supported_set = frozenset(under_supported_terms)
+
+    blocked_ordered: List[str] = []
+    for term in _normalize_ordered_terms(summary_plan.get("blocked_terms")):
+        _append_unique(blocked_ordered, term)
+    for term in _normalize_ordered_terms(_extract_blocked_terms(tailoring_plan.get("blocked_terms"), "summary")):
+        _append_unique(blocked_ordered, term)
+    blocked_terms = tuple(blocked_ordered)
+    blocked_term_set = frozenset(blocked_terms)
+
+    raw_title_terms: List[str] = []
+    for source_terms in (
+        summary_plan.get("title_terms"),
+        tailoring_plan.get("summary_alignment_terms"),
+        title_status.get("supported_terms") if isinstance(title_status, dict) else None,
+    ):
+        for term in _ordered_prompt_terms(source_terms):
+            _append_unique(raw_title_terms, term)
+    normalized_title_terms = tuple(_normalize_ordered_terms(raw_title_terms))
+    safe_title_terms = normalized_title_terms if title_alignment_safe else ()
+    unsafe_title_terms = normalized_title_terms if not title_alignment_safe else ()
+
+    raw_missing_title_terms = ()
+    if isinstance(title_status, dict):
+        raw_missing_title_terms = title_status.get("missing_tokens")
+    title_missing_terms = tuple(
+        _normalize_ordered_terms(raw_missing_title_terms if raw_missing_title_terms else title_alignment.missing_title_tokens)
+    )
+
+    supported_priority_terms = tuple(
+        term
+        for term in _normalize_ordered_terms(tailoring_plan.get("supported_priority_terms"))
+        if _is_summary_surface_term(term, original_text, coverage, evidence_links, safe_title_terms, blocked_term_set, under_supported_set)
+    ) or tuple(
+        term
+        for term in job_weights.ordered_terms
+        if _is_summary_surface_term(term, original_text, coverage, evidence_links, safe_title_terms, blocked_term_set, under_supported_set)
+    )
+    recent_priority_terms = tuple(
+        term
+        for term in _normalize_ordered_terms(tailoring_plan.get("recent_priority_terms"))
+        if _is_recent_summary_surface_term(term, original_text, coverage, evidence_links, recency, safe_title_terms, blocked_term_set, under_supported_set)
+    ) or tuple(
+        term
+        for term in recency.recent_summary_safe_terms
+        if _is_recent_summary_surface_term(term, original_text, coverage, evidence_links, recency, safe_title_terms, blocked_term_set, under_supported_set)
+    )
+
+    preferred_surface_terms: List[str] = []
+    for term in safe_title_terms:
+        _append_unique(preferred_surface_terms, term)
+    for source_terms in (requested_target_keywords, recent_priority_terms, supported_priority_terms):
+        for term in source_terms:
+            if _is_summary_surface_term(
+                term,
+                original_text,
+                coverage,
+                evidence_links,
+                safe_title_terms,
+                blocked_term_set,
+                under_supported_set,
+            ):
+                _append_unique(preferred_surface_terms, term)
+
+    required_terms: List[str] = []
+    for term in preferred_surface_terms:
+        if _contains_canonical_term(original_text, term):
+            _append_unique(required_terms, term)
+    if not required_terms:
+        for term in preferred_surface_terms[:3]:
+            _append_unique(required_terms, term)
+
+    significant_terms = frozenset(
+        tuple(job_weights.ordered_terms)
+        + requested_target_keywords
+        + supported_priority_terms
+        + recent_priority_terms
+        + blocked_terms
+        + under_supported_terms
+        + normalized_title_terms
+        + title_missing_terms
+    )
+    allowed_new_terms = frozenset(preferred_surface_terms)
+    avoid_terms_list: List[str] = []
+    for term in under_supported_terms + title_missing_terms + unsafe_title_terms:
+        if term not in allowed_new_terms:
+            _append_unique(avoid_terms_list, term)
+    avoid_terms = tuple(avoid_terms_list)
+
+    return SummaryATSRewritePolicy(
+        requested_target_keywords=requested_target_keywords,
+        preferred_surface_terms=tuple(preferred_surface_terms),
+        safe_title_terms=tuple(safe_title_terms),
+        unsafe_title_terms=tuple(unsafe_title_terms),
+        supported_priority_terms=supported_priority_terms,
+        recent_priority_terms=recent_priority_terms,
+        required_terms=tuple(required_terms),
+        blocked_terms=blocked_terms,
+        avoid_terms=avoid_terms,
+        allowed_new_terms=allowed_new_terms,
+        blocked_term_set=blocked_term_set,
+        significant_terms=significant_terms,
+        title_missing_terms=title_missing_terms,
+        title_alignment_safe=title_alignment_safe,
+    )
+
+
+def _is_summary_surface_term(
+    term: str,
+    original_text: str,
+    coverage: ResumeCoverage,
+    evidence_links: ResumeEvidenceLinks,
+    safe_title_terms: Sequence[str],
+    blocked_term_set: FrozenSet[str],
+    under_supported_terms: FrozenSet[str],
+) -> bool:
+    canonical = canonicalize_term(term)
+    if not canonical or canonical in blocked_term_set or canonical in under_supported_terms:
+        return False
+    if canonical in safe_title_terms:
+        return True
+    if _contains_canonical_term(original_text, canonical):
+        return True
+    coverage_entry = coverage.coverage_by_term.get(canonical)
+    evidence_entry = evidence_links.links_by_term.get(canonical)
+    return bool(
+        evidence_entry
+        and evidence_entry.is_safe_for_summary
+        and evidence_entry.all_candidates
+        and not (coverage_entry and coverage_entry.is_under_supported)
+    )
+
+
+def _is_recent_summary_surface_term(
+    term: str,
+    original_text: str,
+    coverage: ResumeCoverage,
+    evidence_links: ResumeEvidenceLinks,
+    recency: ATSRecencyPriorities,
+    safe_title_terms: Sequence[str],
+    blocked_term_set: FrozenSet[str],
+    under_supported_terms: FrozenSet[str],
+) -> bool:
+    canonical = canonicalize_term(term)
+    if not _is_summary_surface_term(
+        canonical,
+        original_text,
+        coverage,
+        evidence_links,
+        safe_title_terms,
+        blocked_term_set,
+        under_supported_terms,
+    ):
+        return False
+    recency_entry = recency.priorities_by_term.get(canonical)
+    return bool(recency_entry and recency_entry.is_recent_and_summary_safe)
+
+
+def _validate_summary_candidate(
+    original_text: str,
+    rewritten_text: str,
+    summary_policy: Optional[SummaryATSRewritePolicy],
+    allowed_vocab: Dict[str, Any],
+    target_keywords: Sequence[str],
+) -> Tuple[Optional[str], List[str]]:
+    if summary_policy is not None:
+        unsafe_title_terms = _find_unsafe_summary_title_terms(original_text, rewritten_text, summary_policy)
+        if unsafe_title_terms:
+            return "unsafe_title_alignment", unsafe_title_terms
+
+        blocked_terms = _find_blocked_terms_in_text(rewritten_text, summary_policy.blocked_terms)
+        if blocked_terms:
+            return "blocked_terms", blocked_terms
+
+    requested_target_keywords = (
+        summary_policy.requested_target_keywords if summary_policy is not None else tuple(target_keywords)
+    )
+    disallowed = _find_disallowed_terms(rewritten_text, allowed_vocab, requested_target_keywords)
+    if disallowed:
+        return "disallowed_terms", disallowed
+
+    if summary_policy is not None:
+        unsupported_terms = _find_unsupported_summary_terms(original_text, rewritten_text, summary_policy)
+        if unsupported_terms:
+            return "unsupported_ats_terms", unsupported_terms
+
+        missing_required_terms = _find_missing_required_terms(rewritten_text, summary_policy.required_terms)
+        if missing_required_terms:
+            return "missing_required_summary_terms", missing_required_terms
+
+    return None, []
+
+
+def _find_unsafe_summary_title_terms(
+    original_text: str,
+    rewritten_text: str,
+    summary_policy: SummaryATSRewritePolicy,
+) -> List[str]:
+    if summary_policy.title_alignment_safe or not summary_policy.unsafe_title_terms:
+        return []
+    hits: List[str] = []
+    for term in summary_policy.unsafe_title_terms:
+        if _contains_canonical_term(rewritten_text, term) and not _contains_canonical_term(original_text, term):
+            _append_unique(hits, term)
+    return hits
+
+
+def _find_unsupported_summary_terms(
+    original_text: str,
+    rewritten_text: str,
+    summary_policy: SummaryATSRewritePolicy,
+) -> List[str]:
+    original_terms = _extract_canonical_terms(original_text)
+    rewritten_terms = _extract_canonical_terms(rewritten_text)
+    introduced_terms = sorted(rewritten_terms - original_terms)
+    unsupported_terms = [
+        term
+        for term in introduced_terms
+        if term in summary_policy.significant_terms
+        and term not in summary_policy.allowed_new_terms
+        and term not in summary_policy.blocked_term_set
+        and not _is_covered_by_allowed_summary_phrase(term, rewritten_text, summary_policy.allowed_new_terms)
+    ]
+
+    original_guard_terms = set(_extract_tool_like_terms(original_text))
+    rewritten_guard_terms = set(_extract_tool_like_terms(rewritten_text))
+    introduced_guard_terms = [
+        term
+        for term in sorted(rewritten_guard_terms - original_guard_terms)
+        if term not in summary_policy.allowed_new_terms
+        and not _is_covered_by_allowed_summary_phrase(term, rewritten_text, summary_policy.allowed_new_terms)
+    ]
+
+    unsupported: List[str] = []
+    for term in unsupported_terms + introduced_guard_terms:
+        _append_unique(unsupported, term)
+    return unsupported
+
+
+def _is_covered_by_allowed_summary_phrase(
+    term: str,
+    rewritten_text: str,
+    allowed_new_terms: FrozenSet[str],
+) -> bool:
+    for allowed_term in allowed_new_terms:
+        if " " not in allowed_term:
+            continue
+        allowed_tokens = allowed_term.split()
+        if term in allowed_tokens and _contains_canonical_term(rewritten_text, allowed_term):
+            return True
+    return False
 
 
 def _reorder_skills(tailored: Dict[str, Any], tailoring_plan: Dict[str, Any]) -> None:
@@ -1719,6 +2176,7 @@ def _compress_text(
     preserve_terms: Sequence[str] = (),
     blocked_terms: Sequence[str] = (),
     emphasis_terms: Sequence[str] = (),
+    avoid_terms: Sequence[str] = (),
 ) -> Optional[str]:
     payload = {
         "original_text": original_text,
@@ -1727,6 +2185,7 @@ def _compress_text(
         "preserve_terms": list(preserve_terms),
         "blocked_terms": list(blocked_terms),
         "emphasis_terms": list(emphasis_terms),
+        "avoid_terms": list(avoid_terms),
     }
     system_prompt = load_system_prompt("compress_text")
     messages = build_llm_messages(system_prompt, json.dumps(payload, ensure_ascii=True), task_label="compress_text")
