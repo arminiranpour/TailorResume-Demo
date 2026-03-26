@@ -3,22 +3,26 @@ from __future__ import annotations
 import json
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Sequence, Set, Tuple
 
 from app.ats import (
+    ATSFrequencyBalance,
     ATSRecencyPriorities,
+    FrequencyBalancingAction,
     JobWeights,
     ResumeCoverage,
     ResumeEvidenceLinks,
     ResumeSignals,
     build_coverage_model,
     build_evidence_links,
+    build_frequency_balance,
     build_job_weights,
     build_recency_priorities,
     build_title_alignment,
     extract_job_signals,
     extract_resume_signals,
+    validate_frequency_balance,
 )
 from app.ats.canonicalize import (
     canonicalize_term,
@@ -306,6 +310,8 @@ def rewrite_resume_text_with_audit(
         "bullet_details": [],
         "summary_detail": None,
         "skills_details": [],
+        "frequency_actions": [],
+        "frequency_balance": None,
     }
 
     _rewrite_summary(
@@ -339,6 +345,13 @@ def rewrite_resume_text_with_audit(
         budgets,
         audit_log,
     )
+    _enforce_frequency_balance(
+        tailored,
+        resume_json,
+        job_json,
+        tailoring_plan,
+        audit_log,
+    )
 
     ok, errors = validate_json("resume", tailored)
     if not ok:
@@ -348,6 +361,386 @@ def rewrite_resume_text_with_audit(
     if invariant_errors:
         raise BulletRewriteError(details=invariant_errors, raw_preview="")
     return tailored, audit_log
+
+
+def _enforce_frequency_balance(
+    tailored: Dict[str, Any],
+    source_resume_json: Dict[str, Any],
+    job_json: Dict[str, Any],
+    tailoring_plan: Dict[str, Any],
+    audit_log: Dict[str, Any],
+) -> None:
+    job_signals = extract_job_signals(job_json)
+    source_resume_signals = extract_resume_signals(source_resume_json)
+    job_weights = build_job_weights(job_signals)
+    coverage = build_coverage_model(job_signals, source_resume_signals, job_weights)
+    evidence_links = build_evidence_links(job_signals, source_resume_signals, job_weights, coverage)
+    title_alignment = build_title_alignment(
+        job_signals=job_signals,
+        resume_signals=source_resume_signals,
+        job_weights=job_weights,
+        coverage=coverage,
+        evidence_links=evidence_links,
+    )
+    recency = build_recency_priorities(
+        job_signals=job_signals,
+        resume_signals=source_resume_signals,
+        job_weights=job_weights,
+        coverage=coverage,
+        evidence_links=evidence_links,
+        title_alignment=title_alignment,
+    )
+
+    surfaces = _build_frequency_surface_states(tailored, audit_log)
+    balance = _build_frequency_balance_snapshot(
+        source_resume_json=source_resume_json,
+        tailored=tailored,
+        tailoring_plan=tailoring_plan,
+        job_weights=job_weights,
+        coverage=coverage,
+        evidence_links=evidence_links,
+        recency=recency,
+        title_alignment=title_alignment,
+    )
+    actions: List[FrequencyBalancingAction] = []
+    max_rollbacks = len(surfaces)
+
+    while balance.validation_errors and len(actions) < max_rollbacks:
+        term = _select_frequency_violation_term(balance)
+        if term is None:
+            break
+        surface = _select_frequency_surface_for_term(balance, term, surfaces)
+        if surface is None:
+            break
+        action = _rollback_frequency_surface(surface, term, balance, audit_log)
+        if action is None:
+            break
+        actions.append(action)
+        balance = _build_frequency_balance_snapshot(
+            source_resume_json=source_resume_json,
+            tailored=tailored,
+            tailoring_plan=tailoring_plan,
+            job_weights=job_weights,
+            coverage=coverage,
+            evidence_links=evidence_links,
+            recency=recency,
+            title_alignment=title_alignment,
+        )
+
+    final_balance = replace(balance, balancing_actions=tuple(actions))
+    audit_log["frequency_actions"] = [asdict(action) for action in actions]
+    audit_log["frequency_balance"] = asdict(final_balance)
+
+
+def _build_frequency_balance_snapshot(
+    *,
+    source_resume_json: Dict[str, Any],
+    tailored: Dict[str, Any],
+    tailoring_plan: Dict[str, Any],
+    job_weights: JobWeights,
+    coverage: ResumeCoverage,
+    evidence_links: ResumeEvidenceLinks,
+    recency: ATSRecencyPriorities,
+    title_alignment,
+) -> ATSFrequencyBalance:
+    balance = build_frequency_balance(
+        source_resume_json=source_resume_json,
+        tailored_resume_json=tailored,
+        tailoring_plan=tailoring_plan,
+        job_weights=job_weights,
+        coverage=coverage,
+        evidence_links=evidence_links,
+        recency=recency,
+        title_alignment=title_alignment,
+    )
+    validation_errors = tuple(validate_frequency_balance(balance))
+    return replace(balance, validation_errors=validation_errors)
+
+
+def _build_frequency_surface_states(
+    tailored: Dict[str, Any],
+    audit_log: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    summary_node = tailored.get("summary") if isinstance(tailored.get("summary"), dict) else None
+    skill_nodes: Dict[str, Dict[str, Any]] = {}
+    skills = tailored.get("skills") if isinstance(tailored.get("skills"), dict) else None
+    if isinstance(skills, dict):
+        for line in skills.get("lines", []):
+            if isinstance(line, dict) and isinstance(line.get("line_id"), str):
+                skill_nodes[line["line_id"]] = line
+
+    bullet_nodes: Dict[str, Tuple[Dict[str, Any], str]] = {}
+    for exp in tailored.get("experience", []) if isinstance(tailored.get("experience"), list) else []:
+        if not isinstance(exp, dict):
+            continue
+        for bullet in exp.get("bullets", []) if isinstance(exp.get("bullets"), list) else []:
+            if isinstance(bullet, dict) and isinstance(bullet.get("bullet_id"), str):
+                bullet_nodes[bullet["bullet_id"]] = (bullet, "experience")
+    for project in tailored.get("projects", []) if isinstance(tailored.get("projects"), list) else []:
+        if not isinstance(project, dict):
+            continue
+        for bullet in project.get("bullets", []) if isinstance(project.get("bullets"), list) else []:
+            if isinstance(bullet, dict) and isinstance(bullet.get("bullet_id"), str):
+                bullet_nodes[bullet["bullet_id"]] = (bullet, "projects")
+
+    surfaces: List[Dict[str, Any]] = []
+    order = 0
+    summary_detail = audit_log.get("summary_detail")
+    if (
+        isinstance(summary_detail, dict)
+        and summary_detail.get("changed") is True
+        and isinstance(summary_node, dict)
+        and isinstance(summary_node.get("text"), str)
+        and isinstance(summary_detail.get("original_text"), str)
+    ):
+        surfaces.append(
+            {
+                "surface_key": "summary:summary",
+                "surface_type": "summary",
+                "surface_id": "summary",
+                "section": "summary",
+                "node": summary_node,
+                "current_text": summary_node["text"],
+                "original_text": summary_detail["original_text"],
+                "order": order,
+            }
+        )
+        order += 1
+
+    details = audit_log.get("skills_details")
+    if isinstance(details, list):
+        for detail in details:
+            line_id = detail.get("line_id") if isinstance(detail, dict) else None
+            node = skill_nodes.get(line_id) if isinstance(line_id, str) else None
+            if (
+                isinstance(detail, dict)
+                and detail.get("changed") is True
+                and isinstance(line_id, str)
+                and isinstance(node, dict)
+                and isinstance(node.get("text"), str)
+                and isinstance(detail.get("original_text"), str)
+            ):
+                surfaces.append(
+                    {
+                        "surface_key": f"skills:{line_id}",
+                        "surface_type": "skills",
+                        "surface_id": line_id,
+                        "section": "skills",
+                        "node": node,
+                        "current_text": node["text"],
+                        "original_text": detail["original_text"],
+                        "order": order,
+                    }
+                )
+                order += 1
+
+    bullet_details = audit_log.get("bullet_details")
+    if isinstance(bullet_details, list):
+        for detail in bullet_details:
+            bullet_id = detail.get("bullet_id") if isinstance(detail, dict) else None
+            node_and_section = bullet_nodes.get(bullet_id) if isinstance(bullet_id, str) else None
+            if (
+                isinstance(detail, dict)
+                and detail.get("changed") is True
+                and isinstance(bullet_id, str)
+                and node_and_section is not None
+                and isinstance(detail.get("original_text"), str)
+            ):
+                node, section = node_and_section
+                if not isinstance(node.get("text"), str):
+                    continue
+                surfaces.append(
+                    {
+                        "surface_key": f"bullet:{bullet_id}",
+                        "surface_type": "bullet",
+                        "surface_id": bullet_id,
+                        "section": section,
+                        "node": node,
+                        "current_text": node["text"],
+                        "original_text": detail["original_text"],
+                        "order": order,
+                    }
+                )
+                order += 1
+
+    return surfaces
+
+
+def _select_frequency_violation_term(balance: ATSFrequencyBalance) -> Optional[str]:
+    statuses = balance.frequency_by_term
+    ordered_index = {term: index for index, term in enumerate(balance.frequency_ordered_terms)}
+    candidates = [status for status in statuses.values() if status.is_overused]
+    if not candidates:
+        return None
+    selected = min(
+        candidates,
+        key=lambda status: (
+            _frequency_status_rank(status.status),
+            -status.overuse_amount,
+            ordered_index.get(status.term, 999),
+            status.term,
+        ),
+    )
+    return selected.term
+
+
+def _frequency_status_rank(status: str) -> int:
+    order = {
+        "hard_capped": 0,
+        "stuffed": 1,
+        "over_target": 2,
+        "under_target": 3,
+        "within_target": 4,
+    }
+    return order.get(status, 99)
+
+
+def _select_frequency_surface_for_term(
+    balance: ATSFrequencyBalance,
+    term: str,
+    surfaces: List[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    status = balance.frequency_by_term.get(term)
+    if status is None:
+        return None
+
+    section_rank = {
+        section: index for index, section in enumerate(status.suggested_deprioritized_sections)
+    }
+    sections_over_cap = [
+        section
+        for section in status.suggested_deprioritized_sections
+        if int(status.section_counts.get(section, 0)) > int(status.target_section_caps.get(section, 0))
+    ]
+    if not sections_over_cap:
+        sections_over_cap = [
+            section
+            for section in status.suggested_deprioritized_sections
+            if int(status.section_counts.get(section, 0)) > 0
+        ]
+
+    candidates = [
+        surface
+        for surface in surfaces
+        if surface.get("changed") is not False
+        and surface.get("section") in sections_over_cap
+        and _contains_canonical_term(str(surface.get("current_text", "")), term)
+    ]
+    if not candidates:
+        candidates = [
+            surface
+            for surface in surfaces
+            if surface.get("changed") is not False
+            and _contains_canonical_term(str(surface.get("current_text", "")), term)
+        ]
+    if not candidates:
+        return None
+    return min(
+        candidates,
+        key=lambda surface: (
+            section_rank.get(str(surface.get("section")), 999),
+            int(surface.get("order", 999)),
+            str(surface.get("surface_id", "")),
+        ),
+    )
+
+
+def _rollback_frequency_surface(
+    surface: Dict[str, Any],
+    term: str,
+    balance: ATSFrequencyBalance,
+    audit_log: Dict[str, Any],
+) -> Optional[FrequencyBalancingAction]:
+    node = surface.get("node")
+    original_text = surface.get("original_text")
+    previous_text = surface.get("current_text")
+    if not isinstance(node, dict) or not isinstance(original_text, str) or not isinstance(previous_text, str):
+        return None
+
+    node["text"] = original_text
+    surface["current_text"] = original_text
+    surface["changed"] = False
+
+    reason = _frequency_reason_for_term(term, balance, str(surface.get("section", "")))
+    action = FrequencyBalancingAction(
+        term=term,
+        action="rollback_surface",
+        section=str(surface.get("section", "")),
+        surface_id=str(surface.get("surface_id", "")),
+        reason=reason,
+        previous_text=previous_text,
+        final_text=original_text,
+    )
+    _annotate_frequency_rollback(audit_log, surface, balance, term)
+    return action
+
+
+def _frequency_reason_for_term(term: str, balance: ATSFrequencyBalance, section: str) -> str:
+    status = balance.frequency_by_term.get(term)
+    if status is None:
+        return "frequency_violation"
+    section_count = int(status.section_counts.get(section, 0))
+    section_cap = int(status.target_section_caps.get(section, 0))
+    if section_count > section_cap:
+        return f"{section}_cap_exceeded:{section_count}>{section_cap}"
+    if status.total_count > status.target_max_total:
+        return f"total_cap_exceeded:{status.total_count}>{status.target_max_total}"
+    return status.status
+
+
+def _annotate_frequency_rollback(
+    audit_log: Dict[str, Any],
+    surface: Dict[str, Any],
+    balance: ATSFrequencyBalance,
+    term: str,
+) -> None:
+    validation_errors = list(balance.validation_errors)
+    surface_type = surface.get("surface_type")
+    surface_id = surface.get("surface_id")
+
+    if surface_type == "summary":
+        detail = audit_log.get("summary_detail")
+        if isinstance(detail, dict):
+            detail["final_text"] = surface.get("original_text")
+            detail["changed"] = False
+            detail["skip_reason"] = "frequency_balance_rollback"
+            detail["reject_reason"] = "frequency_balance"
+            detail["frequency_terms"] = [term]
+            detail["validation_errors"] = validation_errors
+        return
+
+    if surface_type == "skills":
+        details = audit_log.get("skills_details")
+        if isinstance(details, list):
+            for detail in reversed(details):
+                if isinstance(detail, dict) and detail.get("line_id") == surface_id:
+                    detail["final_text"] = surface.get("original_text")
+                    detail["changed"] = False
+                    detail["skip_reason"] = "frequency_balance_rollback"
+                    detail["reject_reason"] = "frequency_balance"
+                    detail["frequency_terms"] = [term]
+                    detail["validation_errors"] = validation_errors
+                    break
+        return
+
+    if surface_type == "bullet":
+        details = audit_log.get("bullet_details")
+        if isinstance(details, list):
+            for detail in reversed(details):
+                if isinstance(detail, dict) and detail.get("bullet_id") == surface_id:
+                    detail["final_text"] = surface.get("original_text")
+                    detail["changed"] = False
+                    detail["skip_reason"] = "frequency_balance_rollback"
+                    detail["reject_reason"] = "frequency_balance"
+                    detail["frequency_terms"] = [term]
+                    detail["validation_errors"] = validation_errors
+                    break
+        rewritten = audit_log.get("rewritten_bullets")
+        if isinstance(rewritten, list) and surface_id in rewritten:
+            rewritten[:] = [bullet_id for bullet_id in rewritten if bullet_id != surface_id]
+        kept = audit_log.get("kept_bullets")
+        if isinstance(kept, list) and isinstance(surface_id, str):
+            _append_unique(kept, surface_id)
 
 
 def _validate_schema_or_raise(schema_name: str, obj: Dict[str, Any]) -> None:

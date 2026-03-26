@@ -316,3 +316,66 @@ class ATSRecencyPriorities:
 class ATSAlignmentResult:
     title_alignment: TitleAlignment
     alignment_ordered_titles: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class FrequencyRangeRule:
+    term: str
+    priority_bucket: str
+    min_total: int
+    max_total: int
+    max_summary: int
+    max_skills: int
+    max_experience: int
+    max_projects: int
+    max_education: int
+    baseline_total: int
+    baseline_section_counts: Mapping[str, int]
+    preferred_sections: tuple[str, ...]
+    deprioritized_sections: tuple[str, ...]
+    reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class TermFrequencyStatus:
+    term: str
+    weight: int
+    priority_bucket: str
+    total_count: int
+    section_counts: Mapping[str, int]
+    target_min_total: int
+    target_max_total: int
+    target_section_caps: Mapping[str, int]
+    status: str
+    is_overused: bool
+    is_underused: bool
+    is_capped: bool
+    overuse_amount: int
+    balancing_reasons: tuple[str, ...]
+    suggested_preferred_sections: tuple[str, ...]
+    suggested_deprioritized_sections: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class FrequencyBalancingAction:
+    term: str
+    action: str
+    section: str
+    surface_id: str
+    reason: str
+    previous_text: str
+    final_text: str
+
+
+@dataclass(frozen=True)
+class ATSFrequencyBalance:
+    frequency_by_term: Mapping[str, TermFrequencyStatus]
+    rules_by_term: Mapping[str, FrequencyRangeRule]
+    overused_terms: tuple[str, ...]
+    underused_terms: tuple[str, ...]
+    within_range_terms: tuple[str, ...]
+    capped_terms: tuple[str, ...]
+    frequency_ordered_terms: tuple[str, ...]
+    section_distribution_summary: Mapping[str, int]
+    validation_errors: tuple[str, ...]
+    balancing_actions: tuple[FrequencyBalancingAction, ...]

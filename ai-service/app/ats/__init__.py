@@ -8,16 +8,20 @@ from app.ats.canonicalize import (
 )
 from app.ats.coverage import build_coverage_model
 from app.ats.evidence_linking import build_evidence_links
+from app.ats.frequency import build_frequency_balance, validate_frequency_balance
 from app.ats.job_signals import build_job_signals, extract_job_signals
 from app.ats.recency import build_recency_priorities
 from app.ats.resume_signals import build_resume_signals, extract_resume_signals
 from app.ats.title_alignment import build_title_alignment
 from app.ats.types import (
     ATSAlignmentResult,
+    ATSFrequencyBalance,
     ATSRecencyPriorities,
     CoverageSectionPresence,
     CoverageSummary,
     EvidenceCandidate,
+    FrequencyBalancingAction,
+    FrequencyRangeRule,
     JobSignals,
     JobWeights,
     ResumeCoverage,
@@ -29,14 +33,18 @@ from app.ats.types import (
     TermEvidenceLink,
     TermCoverage,
     TermEvidence,
+    TermFrequencyStatus,
     TermWeight,
 )
 from app.ats.weighting import build_job_weights
 
 __all__ = [
+    "ATSFrequencyBalance",
     "CoverageSectionPresence",
     "CoverageSummary",
     "EvidenceCandidate",
+    "FrequencyBalancingAction",
+    "FrequencyRangeRule",
     "JobSignals",
     "JobWeights",
     "ATSAlignmentResult",
@@ -50,9 +58,11 @@ __all__ = [
     "TermEvidenceLink",
     "TermCoverage",
     "TermEvidence",
+    "TermFrequencyStatus",
     "TermWeight",
     "build_coverage_model",
     "build_evidence_links",
+    "build_frequency_balance",
     "build_recency_priorities",
     "build_resume_signals",
     "build_title_alignment",
@@ -66,4 +76,5 @@ __all__ = [
     "normalize_phrase",
     "normalize_text",
     "tokenize_text",
+    "validate_frequency_balance",
 ]
