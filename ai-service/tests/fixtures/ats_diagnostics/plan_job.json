@@ -1,0 +1,34 @@
+{
+  "title": "Backend Platform Engineer",
+  "must_have": [
+    {
+      "requirement_id": "req_python",
+      "text": "Python"
+    },
+    {
+      "requirement_id": "req_fastapi",
+      "text": "FastAPI"
+    }
+  ],
+  "nice_to_have": [
+    {
+      "requirement_id": "req_aws",
+      "text": "AWS"
+    },
+    {
+      "requirement_id": "req_kubernetes",
+      "text": "Kubernetes"
+    }
+  ],
+  "responsibilities": [
+    "Build FastAPI services with Python.",
+    "Operate Kubernetes workloads."
+  ],
+  "keywords": [
+    "Python",
+    "FastAPI",
+    "AWS",
+    "Kubernetes",
+    "Backend Platform Engineer"
+  ]
+}

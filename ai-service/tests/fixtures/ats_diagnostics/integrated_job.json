@@ -1,0 +1,45 @@
+{
+  "title": "Senior Platform Engineer",
+  "must_have": [
+    {
+      "requirement_id": "req_python",
+      "text": "Python"
+    },
+    {
+      "requirement_id": "req_postgresql",
+      "text": "PostgreSQL"
+    },
+    {
+      "requirement_id": "req_react",
+      "text": "React"
+    }
+  ],
+  "nice_to_have": [
+    {
+      "requirement_id": "req_aws",
+      "text": "AWS"
+    },
+    {
+      "requirement_id": "req_kubernetes",
+      "text": "Kubernetes"
+    },
+    {
+      "requirement_id": "req_javascript",
+      "text": "JavaScript"
+    }
+  ],
+  "responsibilities": [
+    "Build Python APIs with PostgreSQL for platform systems.",
+    "Ship React interfaces for operations workflows.",
+    "Partner with AWS and Kubernetes platform teams."
+  ],
+  "keywords": [
+    "Senior Platform Engineer",
+    "Python",
+    "PostgreSQL",
+    "React",
+    "JavaScript",
+    "AWS",
+    "Kubernetes"
+  ]
+}

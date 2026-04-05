@@ -1,0 +1,46 @@
+{
+  "meta": {
+    "total_pages": 1,
+    "structure_hash": "ats-diagnostic-coverage"
+  },
+  "summary": {
+    "id": "summary",
+    "text": "Backend engineer focused on platform delivery."
+  },
+  "skills": {
+    "id": "skills",
+    "lines": [
+      {
+        "line_id": "skills_1",
+        "text": "Leadership, Teamwork"
+      }
+    ]
+  },
+  "experience": [
+    {
+      "exp_id": "exp_recent",
+      "company": "Northwind",
+      "title": "Backend Engineer",
+      "start_date": "2022-03",
+      "end_date": "Present",
+      "bullets": [
+        {
+          "bullet_id": "exp_recent_b1",
+          "bullet_index": 0,
+          "text": "Built Python APIs with PostgreSQL for platform services.",
+          "char_count": 56
+        }
+      ]
+    }
+  ],
+  "projects": [],
+  "education": [
+    {
+      "edu_id": "edu_1",
+      "school": "State University",
+      "degree": "BS Computer Science",
+      "start_date": "2013",
+      "end_date": "2017"
+    }
+  ]
+}

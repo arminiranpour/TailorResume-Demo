@@ -1,0 +1,35 @@
+{
+  "title": "Backend Engineer",
+  "must_have": [
+    {
+      "requirement_id": "req_fastapi",
+      "text": "FastAPI"
+    },
+    {
+      "requirement_id": "req_postgresql",
+      "text": "PostgreSQL"
+    },
+    {
+      "requirement_id": "req_python",
+      "text": "Python"
+    }
+  ],
+  "nice_to_have": [
+    {
+      "requirement_id": "req_aws",
+      "text": "AWS"
+    }
+  ],
+  "responsibilities": [
+    "Build FastAPI APIs with PostgreSQL.",
+    "Improve Python service reliability.",
+    "Partner with AWS delivery teams."
+  ],
+  "keywords": [
+    "FastAPI",
+    "PostgreSQL",
+    "Python",
+    "AWS",
+    "Backend Engineer"
+  ]
+}

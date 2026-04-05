@@ -1,0 +1,46 @@
+{
+  "meta": {
+    "total_pages": 1,
+    "structure_hash": "ats-diagnostic-frequency"
+  },
+  "summary": {
+    "id": "summary",
+    "text": "Python engineer building API services for platform teams."
+  },
+  "skills": {
+    "id": "skills",
+    "lines": [
+      {
+        "line_id": "skills_1",
+        "text": "Python, REST API"
+      }
+    ]
+  },
+  "experience": [
+    {
+      "exp_id": "exp_recent",
+      "company": "Acme",
+      "title": "Backend Engineer",
+      "start_date": "2022-01",
+      "end_date": "Present",
+      "bullets": [
+        {
+          "bullet_id": "exp_recent_b1",
+          "bullet_index": 0,
+          "text": "Built Python APIs with PostgreSQL.",
+          "char_count": 33
+        }
+      ]
+    }
+  ],
+  "projects": [],
+  "education": [
+    {
+      "edu_id": "edu_1",
+      "school": "State University",
+      "degree": "BS Computer Science",
+      "start_date": "2012",
+      "end_date": "2016"
+    }
+  ]
+}

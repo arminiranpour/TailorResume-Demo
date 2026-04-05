@@ -1,0 +1,28 @@
+{
+  "title": "Backend Engineer",
+  "must_have": [
+    {
+      "requirement_id": "req_python",
+      "text": "Python"
+    },
+    {
+      "requirement_id": "req_rest_api",
+      "text": "REST API"
+    }
+  ],
+  "nice_to_have": [
+    {
+      "requirement_id": "req_postgresql",
+      "text": "PostgreSQL"
+    }
+  ],
+  "responsibilities": [
+    "Build Python REST APIs."
+  ],
+  "keywords": [
+    "Python",
+    "REST API",
+    "PostgreSQL",
+    "Backend Engineer"
+  ]
+}

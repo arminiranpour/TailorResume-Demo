@@ -1,0 +1,17 @@
+{
+  "title": "Platform Engineer",
+  "must_have": [
+    {
+      "requirement_id": "req_python",
+      "text": "Python"
+    }
+  ],
+  "nice_to_have": [],
+  "responsibilities": [
+    "Build Python services."
+  ],
+  "keywords": [
+    "Python",
+    "Platform Engineer"
+  ]
+}

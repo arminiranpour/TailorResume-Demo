@@ -1,0 +1,23 @@
+{
+  "title": "Senior Platform Engineer",
+  "must_have": [
+    {
+      "requirement_id": "req_python",
+      "text": "Python"
+    }
+  ],
+  "nice_to_have": [
+    {
+      "requirement_id": "req_rest_api",
+      "text": "REST API"
+    }
+  ],
+  "responsibilities": [
+    "Build Python platform APIs."
+  ],
+  "keywords": [
+    "Senior Platform Engineer",
+    "Python",
+    "REST API"
+  ]
+}

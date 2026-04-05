@@ -1,0 +1,28 @@
+{
+  "title": "React JavaScript",
+  "must_have": [
+    {
+      "requirement_id": "req_javascript",
+      "text": "JavaScript"
+    }
+  ],
+  "nice_to_have": [
+    {
+      "requirement_id": "req_react",
+      "text": "React"
+    },
+    {
+      "requirement_id": "req_aws",
+      "text": "AWS"
+    }
+  ],
+  "responsibilities": [
+    "Build React interfaces with JavaScript."
+  ],
+  "keywords": [
+    "JavaScript",
+    "React",
+    "AWS",
+    "React JavaScript"
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "meta": {
+    "total_pages": 1,
+    "structure_hash": "ats-diagnostic-bullet"
+  },
+  "summary": {
+    "id": "summary",
+    "text": "Backend engineer."
+  },
+  "skills": {
+    "id": "skills",
+    "lines": [
+      {
+        "line_id": "skills_1",
+        "text": "Python, AWS, Teamwork"
+      }
+    ]
+  },
+  "experience": [
+    {
+      "exp_id": "exp_recent",
+      "company": "Acme",
+      "title": "Backend Engineer",
+      "start_date": "2023-01",
+      "end_date": "Present",
+      "bullets": [
+        {
+          "bullet_id": "exp_recent_b1",
+          "bullet_index": 0,
+          "text": "Built FastAPI services with PostgreSQL.",
+          "char_count": 39
+        },
+        {
+          "bullet_id": "exp_recent_b2",
+          "bullet_index": 1,
+          "text": "Improved Python service reliability.",
+          "char_count": 35
+        }
+      ]
+    }
+  ],
+  "projects": [],
+  "education": [
+    {
+      "edu_id": "edu_1",
+      "school": "State University",
+      "degree": "BS Computer Science",
+      "start_date": "2012",
+      "end_date": "2016"
+    }
+  ]
+}

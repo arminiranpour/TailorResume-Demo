@@ -1,0 +1,23 @@
+{
+  "title": "Platform Engineer",
+  "must_have": [
+    {
+      "requirement_id": "req_python",
+      "text": "Python"
+    },
+    {
+      "requirement_id": "req_kubernetes",
+      "text": "Kubernetes"
+    }
+  ],
+  "nice_to_have": [],
+  "responsibilities": [
+    "Build Python platform services.",
+    "Operate Kubernetes workloads."
+  ],
+  "keywords": [
+    "Python",
+    "Kubernetes",
+    "Platform Engineer"
+  ]
+}

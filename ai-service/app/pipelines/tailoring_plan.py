@@ -68,7 +68,15 @@ def generate_tailoring_plan(
     resume_json: Dict[str, Any],
     job_json: Dict[str, Any],
     score_result: Dict[str, Any],
-    provider: LLMProvider,
+    provider: Optional[LLMProvider] = None,
+    *,
+    job_signals: Optional[JobSignals] = None,
+    resume_signals: Optional[ResumeSignals] = None,
+    job_weights: Optional[JobWeights] = None,
+    coverage: Optional[ResumeCoverage] = None,
+    evidence_links: Optional[ResumeEvidenceLinks] = None,
+    title_alignment: Optional[TitleAlignment] = None,
+    recency_priorities: Optional[ATSRecencyPriorities] = None,
 ) -> Dict[str, Any]:
     del provider  # Planning is deterministic in the ATS pipeline.
 
@@ -89,7 +97,17 @@ def generate_tailoring_plan(
             raw_preview="",
         )
 
-    context = _build_ats_context(job_json, resume_json)
+    context = _build_ats_context(
+        job_json,
+        resume_json,
+        job_signals=job_signals,
+        resume_signals=resume_signals,
+        job_weights=job_weights,
+        coverage=coverage,
+        evidence_links=evidence_links,
+        title_alignment=title_alignment,
+        recency_priorities=recency_priorities,
+    )
     plan = _build_tailoring_plan(
         resume_json=resume_json,
         score_result=score_result,
@@ -102,20 +120,31 @@ def generate_tailoring_plan(
     return plan
 
 
-def _build_ats_context(job_json: Dict[str, Any], resume_json: Dict[str, Any]) -> _ATSPlannerContext:
-    job_signals = extract_job_signals(job_json)
-    resume_signals = extract_resume_signals(resume_json)
-    job_weights = build_job_weights(job_signals)
-    coverage = build_coverage_model(job_signals, resume_signals, job_weights)
-    evidence_links = build_evidence_links(job_signals, resume_signals, job_weights, coverage)
-    title_alignment = build_title_alignment(
+def _build_ats_context(
+    job_json: Dict[str, Any],
+    resume_json: Dict[str, Any],
+    *,
+    job_signals: Optional[JobSignals] = None,
+    resume_signals: Optional[ResumeSignals] = None,
+    job_weights: Optional[JobWeights] = None,
+    coverage: Optional[ResumeCoverage] = None,
+    evidence_links: Optional[ResumeEvidenceLinks] = None,
+    title_alignment: Optional[TitleAlignment] = None,
+    recency_priorities: Optional[ATSRecencyPriorities] = None,
+) -> _ATSPlannerContext:
+    job_signals = job_signals or extract_job_signals(job_json)
+    resume_signals = resume_signals or extract_resume_signals(resume_json)
+    job_weights = job_weights or build_job_weights(job_signals)
+    coverage = coverage or build_coverage_model(job_signals, resume_signals, job_weights)
+    evidence_links = evidence_links or build_evidence_links(job_signals, resume_signals, job_weights, coverage)
+    title_alignment = title_alignment or build_title_alignment(
         job_signals=job_signals,
         resume_signals=resume_signals,
         job_weights=job_weights,
         coverage=coverage,
         evidence_links=evidence_links,
     )
-    recency = build_recency_priorities(
+    recency = recency_priorities or build_recency_priorities(
         job_signals=job_signals,
         resume_signals=resume_signals,
         job_weights=job_weights,

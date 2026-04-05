@@ -1,0 +1,61 @@
+{
+  "meta": {
+    "total_pages": 1,
+    "structure_hash": "ats-diagnostic-recency"
+  },
+  "summary": {
+    "id": "summary",
+    "text": "Platform engineer."
+  },
+  "skills": {
+    "id": "skills",
+    "lines": [
+      {
+        "line_id": "skills_1",
+        "text": "Python, Communication"
+      }
+    ]
+  },
+  "experience": [
+    {
+      "exp_id": "exp_old",
+      "company": "OldCo",
+      "title": "Engineer",
+      "start_date": "2019-01",
+      "end_date": "2020-12",
+      "bullets": [
+        {
+          "bullet_id": "exp_old_b1",
+          "bullet_index": 0,
+          "text": "Built Python ETL jobs for reporting.",
+          "char_count": 36
+        }
+      ]
+    },
+    {
+      "exp_id": "exp_recent",
+      "company": "NewCo",
+      "title": "Senior Engineer",
+      "start_date": "2022-01",
+      "end_date": "Present",
+      "bullets": [
+        {
+          "bullet_id": "exp_recent_b1",
+          "bullet_index": 0,
+          "text": "Built Python APIs for platform services.",
+          "char_count": 39
+        }
+      ]
+    }
+  ],
+  "projects": [],
+  "education": [
+    {
+      "edu_id": "edu_1",
+      "school": "State University",
+      "degree": "BS Computer Science",
+      "start_date": "2011",
+      "end_date": "2015"
+    }
+  ]
+}
