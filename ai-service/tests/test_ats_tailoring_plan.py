@@ -243,6 +243,29 @@ def test_missing_unsupported_requirements_remain_missing():
     assert "ci/cd pipelines" not in result["prioritized_keywords"]
 
 
+def test_skills_only_terms_are_under_supported_not_fully_supported():
+    resume_json = _load_fixture("ats_diagnostics/plan_resume.json")
+    job_json = _load_fixture("ats_diagnostics/plan_job.json")
+    score_result = {
+        "decision": "PROCEED",
+        "reasons": [],
+        "matched_requirements": [],
+        "missing_requirements": [],
+        "must_have_coverage_percent": 100,
+    }
+
+    result = generate_tailoring_plan(resume_json, job_json, score_result, DummyProvider())
+    blocked = {item["term"]: item for item in result["blocked_terms"]}
+    under_supported = {item["term"]: item for item in result["under_supported_terms"]}
+
+    assert "fastapi" in result["supported_priority_terms"]
+    assert "python" in result["supported_priority_terms"]
+    assert "aws" not in result["supported_priority_terms"]
+    assert under_supported["aws"]["safe_for"] == ["skills"]
+    assert under_supported["aws"]["reason"] == "under_supported_resume_evidence"
+    assert blocked["kubernetes"]["blocked_for"] == ["bullets", "summary", "skills"]
+
+
 def test_plan_ordering_is_deterministic():
     first = _generate_fixture_plan()
     second = _generate_fixture_plan()

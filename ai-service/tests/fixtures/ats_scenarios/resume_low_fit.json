@@ -1,0 +1,81 @@
+{
+  "meta": {
+    "total_pages": 1,
+    "structure_hash": "ats-scenario-low-fit"
+  },
+  "summary": {
+    "id": "summary",
+    "text": "Senior QA automation engineer focused on test frameworks, release quality, and incident prevention."
+  },
+  "skills": {
+    "id": "skills",
+    "lines": [
+      {
+        "line_id": "skills_1",
+        "text": "Python, Selenium, Playwright"
+      },
+      {
+        "line_id": "skills_2",
+        "text": "AWS, CI/CD, Jenkins, Docker"
+      },
+      {
+        "line_id": "skills_3",
+        "text": "API testing, quality strategy"
+      }
+    ]
+  },
+  "experience": [
+    {
+      "exp_id": "exp_1",
+      "company": "Signal Commerce",
+      "title": "Senior QA Automation Engineer",
+      "start_date": "2021-01",
+      "end_date": "Present",
+      "bullets": [
+        {
+          "bullet_id": "exp_1_b1",
+          "bullet_index": 0,
+          "text": "Built Python test automation for order workflows and regression suites across web releases.",
+          "char_count": 91
+        },
+        {
+          "bullet_id": "exp_1_b2",
+          "bullet_index": 1,
+          "text": "Maintained AWS test environments and CI/CD jobs used by release engineering.",
+          "char_count": 76
+        },
+        {
+          "bullet_id": "exp_1_b3",
+          "bullet_index": 2,
+          "text": "Expanded API test coverage and defect triage processes for partner integrations.",
+          "char_count": 80
+        }
+      ]
+    },
+    {
+      "exp_id": "exp_2",
+      "company": "Prairie Media",
+      "title": "Quality Engineer",
+      "start_date": "2017-05",
+      "end_date": "2020-12",
+      "bullets": [
+        {
+          "bullet_id": "exp_2_b1",
+          "bullet_index": 0,
+          "text": "Created UI automation for React regression testing with product and support teams.",
+          "char_count": 82
+        }
+      ]
+    }
+  ],
+  "education": [
+    {
+      "edu_id": "edu_1",
+      "school": "Western University",
+      "degree": "BSc, Computer Science",
+      "start_date": "2011-09",
+      "end_date": "2015-04"
+    }
+  ],
+  "projects": []
+}

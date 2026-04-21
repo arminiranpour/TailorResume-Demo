@@ -270,6 +270,101 @@ def test_canonical_supported_skill_variants_are_preferred_safely():
     assert tailored["skills"]["lines"][0]["text"] == "JavaScript, React, Python"
 
 
+def test_dense_skills_lines_replace_weaker_terms_instead_of_adding_title_terms():
+    resume = {
+        "meta": {"total_pages": 1, "structure_hash": "abc"},
+        "summary": {"id": "summary", "text": "Engineer delivering platform services."},
+        "skills": {
+            "id": "skills",
+            "lines": [{"line_id": "skills_1", "text": "JS, ReactJS, AWS"}],
+        },
+        "experience": [
+            {
+                "exp_id": "exp_recent",
+                "company": "Acme",
+                "title": "Platform Engineer",
+                "start_date": "2022-01",
+                "end_date": "Present",
+                "bullets": [
+                    {
+                        "bullet_id": "exp_recent_b1",
+                        "bullet_index": 0,
+                        "text": "Built Python APIs with PostgreSQL.",
+                        "char_count": 33,
+                    }
+                ],
+            }
+        ],
+        "projects": [
+            {
+                "project_id": "proj_ui",
+                "name": "Operations Portal",
+                "bullets": [
+                    {
+                        "bullet_id": "proj_ui_b1",
+                        "bullet_index": 0,
+                        "text": "Built ReactJS dashboard for operations.",
+                        "char_count": 39,
+                    }
+                ],
+            }
+        ],
+        "education": [{"edu_id": "edu_1", "school": "Uni", "degree": "BS", "start_date": "2016", "end_date": "2020"}],
+    }
+    job = {
+        "title": "Senior Platform Engineer",
+        "must_have": [
+            {"requirement_id": "req_python", "text": "Python"},
+            {"requirement_id": "req_postgresql", "text": "PostgreSQL"},
+            {"requirement_id": "req_react", "text": "React"},
+        ],
+        "nice_to_have": [
+            {"requirement_id": "req_aws", "text": "AWS"},
+            {"requirement_id": "req_js", "text": "JavaScript"},
+        ],
+        "responsibilities": [
+            "Build Python APIs with PostgreSQL for platform systems.",
+            "Ship React interfaces for operations workflows.",
+        ],
+        "keywords": ["Senior Platform Engineer", "Python", "PostgreSQL", "React", "JavaScript", "AWS"],
+    }
+    plan = {
+        "bullet_actions": [
+            {"bullet_id": "exp_recent_b1", "rewrite_intent": "keep", "target_keywords": []},
+            {"bullet_id": "proj_ui_b1", "rewrite_intent": "keep", "target_keywords": []},
+        ],
+        "missing_requirements": [],
+        "prioritized_keywords": ["platform", "postgresql", "python", "react", "javascript"],
+        "supported_priority_terms": ["platform", "postgresql", "python", "react", "engineer"],
+        "skill_priority_terms": ["platform", "postgresql", "python", "react", "aws", "javascript"],
+        "recent_priority_terms": ["postgresql", "python", "react", "platform"],
+        "summary_alignment_terms": ["platform engineer", "platform", "engineer"],
+        "under_supported_terms": [
+            {"term": "aws", "priority_bucket": "medium", "safe_for": ["skills"], "reason": "under_supported_resume_evidence"},
+            {"term": "javascript", "priority_bucket": "medium", "safe_for": ["skills"], "reason": "under_supported_resume_evidence"},
+        ],
+        "title_alignment_status": {
+            "is_title_supported": True,
+            "is_safe_for_summary_alignment": True,
+            "alignment_strength": "strong",
+            "supported_terms": ["platform engineer", "platform", "engineer"],
+            "missing_tokens": ["senior"],
+            "strongest_matching_resume_title": "Platform Engineer",
+        },
+    }
+
+    tailored, _ = rewrite_resume_text_with_audit(
+        resume,
+        job,
+        _score(),
+        plan,
+        NoOpProvider(),
+        character_budgets={"skills_line_max_chars": {"skills_1": 40}},
+    )
+
+    assert tailored["skills"]["lines"][0]["text"] == "PostgreSQL, React, JavaScript"
+
+
 def test_recent_supported_skills_outrank_weaker_stale_skills():
     resume = {
         "meta": {"total_pages": 1, "structure_hash": "abc"},

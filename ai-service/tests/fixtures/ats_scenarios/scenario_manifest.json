@@ -1,0 +1,92 @@
+[
+  {
+    "scenario_id": "scenario_very_high_fit",
+    "scenario_name": "Very High Fit Platform Engineer",
+    "fit_level": "very_high",
+    "resume_fixture": "resume_very_high_fit.json",
+    "shared_job_fixture": "shared_job.json",
+    "purpose": "Tests strong direct match behavior, recent evidence weighting, title alignment, and safe high-coverage tailoring opportunities across summary, skills, and bullets.",
+    "expected_decision": "PROCEED",
+    "key_expected_signals": [
+      "All must-have requirements should match with recent experience evidence.",
+      "Title alignment should be strong and summary-safe.",
+      "Tailoring can strengthen keyword frequency and section coverage without fabrication."
+    ],
+    "key_risk_areas": [
+      "Frequency balancing should avoid overusing already strong terms.",
+      "Bullet rewrites should stay additive and not duplicate existing phrasing too aggressively."
+    ]
+  },
+  {
+    "scenario_id": "scenario_high_imperfect_fit",
+    "scenario_name": "High Fit With Uneven Support",
+    "fit_level": "high_imperfect",
+    "resume_fixture": "resume_high_imperfect_fit.json",
+    "shared_job_fixture": "shared_job.json",
+    "purpose": "Tests proceed behavior when the candidate is strong overall but some target terms are weakly surfaced, older, or present only in skills and projects.",
+    "expected_decision": "PROCEED",
+    "key_expected_signals": [
+      "Most must-have requirements should match, but some preferred terms should remain missing.",
+      "Summary optimization should have clear room to add supported job language.",
+      "Bullet rewrites should improve evidence surfacing for FastAPI, React, and TypeScript without inventing newer experience."
+    ],
+    "key_risk_areas": [
+      "The planner should not overstate project-only or older experience as core recent ownership.",
+      "Skills optimization should normalize variants such as JS, ReactJS, and Postgres naturally."
+    ]
+  },
+  {
+    "scenario_id": "scenario_borderline_fit",
+    "scenario_name": "Borderline Mixed-Signal Engineer",
+    "fit_level": "borderline_medium",
+    "resume_fixture": "resume_borderline_fit.json",
+    "shared_job_fixture": "shared_job.json",
+    "purpose": "Tests threshold behavior when alignment is partial, relevant evidence is stale, and current role support is weaker than older experience.",
+    "expected_decision": "BORDERLINE",
+    "key_expected_signals": [
+      "A subset of must-have requirements should match, but not enough for a clear proceed.",
+      "Recency logic should prefer older evidence cautiously and avoid overstating present-day fit.",
+      "Title alignment should be partial rather than exact."
+    ],
+    "key_risk_areas": [
+      "The system should remain conservative about rewriting current-role bullets with stale technical terms.",
+      "Summary and skills optimization should not imply stronger front-end or cloud depth than the resume supports."
+    ]
+  },
+  {
+    "scenario_id": "scenario_low_fit",
+    "scenario_name": "Low Fit QA Automation Candidate",
+    "fit_level": "low",
+    "resume_fixture": "resume_low_fit.json",
+    "shared_job_fixture": "shared_job.json",
+    "purpose": "Tests skip behavior, missing hard technical alignment, title mismatch, and conservative planning when only limited surface overlap exists.",
+    "expected_decision": "SKIP",
+    "key_expected_signals": [
+      "Only a small portion of must-have requirements should match.",
+      "Overlap should cluster around QA-adjacent tooling such as Python and CI/CD rather than platform engineering delivery.",
+      "Tailoring opportunities should be limited and conservative."
+    ],
+    "key_risk_areas": [
+      "Unsupported platform terms must not be invented in bullets or summary.",
+      "The planner should avoid turning testing or release work into backend product engineering claims."
+    ]
+  },
+  {
+    "scenario_id": "scenario_false_positive_risk",
+    "scenario_name": "Buzzword-Heavy False Positive Risk",
+    "fit_level": "misleading_false_positive",
+    "resume_fixture": "resume_false_positive_risk.json",
+    "shared_job_fixture": "shared_job.json",
+    "purpose": "Tests keyword inflation, skills-only overlap, weak experience support, and anti-fabrication constraints for a resume that can mislead naive ATS matching.",
+    "expected_decision": "SKIP",
+    "key_expected_signals": [
+      "Summary and skills sections should contain many overlapping terms with little experience backing.",
+      "Evidence linking should mark several terms as skills-only or under-supported.",
+      "Title alignment should remain weak because the resume is solutions-oriented rather than platform-engineering oriented."
+    ],
+    "key_risk_areas": [
+      "Weak systems may over-score this profile because of summary and skills keyword density.",
+      "Tailoring must not promote unsupported implementation claims into bullets, summary, or reordered skills."
+    ]
+  }
+]

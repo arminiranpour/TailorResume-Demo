@@ -272,3 +272,76 @@ def test_pipeline_remains_compatible_with_legacy_summary_plan_and_repeated_runs_
     assert tailored_one == tailored_two
     assert audit_one == audit_two
     assert tailored_one["summary"]["text"] == "Python engineer building API services."
+
+
+def test_blocked_title_inflation_fallback_keeps_safe_title_alignment_without_api_stuffing():
+    provider = SummaryProvider("Senior platform engineer building Python APIs with PostgreSQL.")
+    resume = {
+        "meta": {"total_pages": 1, "structure_hash": "abc"},
+        "summary": {"id": "summary", "text": "Engineer delivering platform services."},
+        "skills": {"id": "skills", "lines": [{"line_id": "skills_1", "text": "JS, ReactJS, AWS"}]},
+        "experience": [
+            {
+                "exp_id": "exp_recent",
+                "company": "Acme",
+                "title": "Platform Engineer",
+                "start_date": "2023-01",
+                "end_date": "Present",
+                "bullets": [
+                    {
+                        "bullet_id": "exp_recent_b1",
+                        "bullet_index": 0,
+                        "text": "Built Python APIs with PostgreSQL.",
+                        "char_count": 33,
+                    }
+                ],
+            }
+        ],
+        "projects": [],
+        "education": [{"edu_id": "edu_1", "school": "Uni", "degree": "BS", "start_date": "2016", "end_date": "2020"}],
+    }
+    job = {
+        "title": "Senior Platform Engineer",
+        "must_have": [
+            {"requirement_id": "req_python", "text": "Python"},
+            {"requirement_id": "req_postgresql", "text": "PostgreSQL"},
+        ],
+        "nice_to_have": [{"requirement_id": "req_react", "text": "React"}],
+        "responsibilities": ["Build Python APIs with PostgreSQL for platform systems."],
+        "keywords": ["Senior Platform Engineer", "Python", "PostgreSQL", "React"],
+    }
+    plan = {
+        "bullet_actions": [{"bullet_id": "exp_recent_b1", "rewrite_intent": "keep", "target_keywords": []}],
+        "missing_requirements": [],
+        "prioritized_keywords": ["platform", "postgresql", "python"],
+        "summary_rewrite": {
+            "rewrite_intent": "rewrite",
+            "target_keywords": ["platform engineer", "platform", "engineer", "postgresql", "python"],
+            "title_alignment_safe": True,
+            "title_terms": ["platform engineer", "platform", "engineer"],
+            "blocked_terms": ["senior", "senior platform", "senior platform engineer"],
+        },
+        "supported_priority_terms": ["platform", "postgresql", "python", "engineer", "platform engineer", "python api", "api"],
+        "recent_priority_terms": ["postgresql", "python", "platform", "engineer", "platform engineer", "python api", "api"],
+        "summary_alignment_terms": ["platform engineer", "platform", "engineer"],
+        "title_alignment_status": {
+            "is_title_supported": True,
+            "is_safe_for_summary_alignment": True,
+            "alignment_strength": "strong",
+            "supported_terms": ["platform engineer", "platform", "engineer"],
+            "missing_tokens": ["senior"],
+            "strongest_matching_resume_title": "Platform Engineer",
+        },
+    }
+
+    tailored, audit_log = rewrite_resume_text_with_audit(
+        resume,
+        job,
+        sample_score(),
+        plan,
+        provider,
+    )
+
+    assert tailored["summary"]["text"] == "Platform Engineer building Python and PostgreSQL services."
+    assert audit_log["summary_detail"]["fallback_used"] is True
+    assert audit_log["summary_detail"]["reject_reason"] == "blocked_terms"

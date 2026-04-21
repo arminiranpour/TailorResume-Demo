@@ -1,0 +1,100 @@
+{
+  "meta": {
+    "total_pages": 2,
+    "structure_hash": "ats-scenario-high-imperfect-fit"
+  },
+  "summary": {
+    "id": "summary",
+    "text": "Senior software engineer building backend tooling and internal products for operations teams."
+  },
+  "skills": {
+    "id": "skills",
+    "lines": [
+      {
+        "line_id": "skills_1",
+        "text": "Python, Postgres, AWS, JS"
+      },
+      {
+        "line_id": "skills_2",
+        "text": "ReactJS, TypeScript, REST APIs, Terraform"
+      },
+      {
+        "line_id": "skills_3",
+        "text": "GraphQL, Docker"
+      }
+    ]
+  },
+  "experience": [
+    {
+      "exp_id": "exp_1",
+      "company": "Beacon Retail",
+      "title": "Senior Software Engineer",
+      "start_date": "2021-05",
+      "end_date": "Present",
+      "bullets": [
+        {
+          "bullet_id": "exp_1_b1",
+          "bullet_index": 0,
+          "text": "Built Python backend services and REST APIs for pricing operations used by merchandising and support teams.",
+          "char_count": 107
+        },
+        {
+          "bullet_id": "exp_1_b2",
+          "bullet_index": 1,
+          "text": "Modeled Postgres tables for order audit workflows and collaborated on data migration plans.",
+          "char_count": 91
+        },
+        {
+          "bullet_id": "exp_1_b3",
+          "bullet_index": 2,
+          "text": "Maintained AWS deployment automation and CI/CD pipelines for internal services.",
+          "char_count": 79
+        }
+      ]
+    },
+    {
+      "exp_id": "exp_2",
+      "company": "ShiftBoard",
+      "title": "Full Stack Developer",
+      "start_date": "2018-01",
+      "end_date": "2021-04",
+      "bullets": [
+        {
+          "bullet_id": "exp_2_b1",
+          "bullet_index": 0,
+          "text": "Built ReactJS dashboards and TypeScript forms for store operations and approval workflows.",
+          "char_count": 90
+        },
+        {
+          "bullet_id": "exp_2_b2",
+          "bullet_index": 1,
+          "text": "Supported GraphQL integrations for a partner portal and internal admin reports.",
+          "char_count": 79
+        }
+      ]
+    }
+  ],
+  "education": [
+    {
+      "edu_id": "edu_1",
+      "school": "McMaster University",
+      "degree": "BEng, Computer Engineering",
+      "start_date": "2013-09",
+      "end_date": "2017-04"
+    }
+  ],
+  "projects": [
+    {
+      "project_id": "proj_1",
+      "name": "Approvals Service Pilot",
+      "bullets": [
+        {
+          "bullet_id": "proj_1_b1",
+          "bullet_index": 0,
+          "text": "Prototyped FastAPI REST APIs for an internal approvals workflow that was later merged into the main platform.",
+          "char_count": 109
+        }
+      ]
+    }
+  ]
+}

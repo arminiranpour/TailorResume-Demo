@@ -82,6 +82,7 @@ class BulletATSRewritePolicy:
     required_terms: Tuple[str, ...]
     allowed_new_terms: FrozenSet[str]
     blocked_term_set: FrozenSet[str]
+    salvageable_blocked_terms: FrozenSet[str]
     plan_term_set: FrozenSet[str]
     is_recent: bool
     is_primary_evidence: bool
@@ -924,7 +925,15 @@ def _rewrite_summary(
     if _needs_summary_fallback(original_text, rewritten_text, reject_reason):
         summary_detail["fallback_used"] = True
         summary_detail["fallback_reason"] = _fallback_reason(original_text, rewritten_text, reject_reason)
-        fallback_text = _fallback_summary_rewrite(original_text)
+        fallback_text = _fallback_summary_rewrite_with_context(
+            original_text=original_text,
+            candidate_text=rewritten_text,
+            reject_reason=reject_reason,
+            rejected_terms=rejected_terms or [],
+            summary_policy=summary_policy,
+            allowed_vocab=allowed_vocab,
+            target_keywords=target_keywords,
+        )
         if fallback_text is None or _is_effectively_same(original_text, fallback_text):
             summary_detail["skip_reason"] = "fallback_failed"
             audit_log["summary_detail"] = summary_detail
@@ -1056,6 +1065,7 @@ def _call_summary_rewrite(
 
     system_prompt = load_system_prompt("summary_rewrite")
     config = get_config()
+    last_rewritten_text: Optional[str] = None
     for _ in range(2):
         messages = build_llm_messages(system_prompt, json.dumps(payload, ensure_ascii=True), task_label="summary_rewrite")
         raw = provider.generate(messages, timeout=config.llm_timeout_seconds)
@@ -1065,6 +1075,7 @@ def _call_summary_rewrite(
         rewritten_text = obj.get("rewritten_text")
         if not isinstance(rewritten_text, str):
             return None, "invalid_text", None
+        last_rewritten_text = rewritten_text
 
         reject_reason, rejected_terms = _validate_summary_candidate(
             original_text,
@@ -1101,15 +1112,15 @@ def _call_summary_rewrite(
         return rewritten_text, None, None
 
     if isinstance(payload.get("blocked_title_terms_found"), list) and payload["blocked_title_terms_found"]:
-        return None, "unsafe_title_alignment", list(payload["blocked_title_terms_found"])
+        return last_rewritten_text, "unsafe_title_alignment", list(payload["blocked_title_terms_found"])
     if isinstance(payload.get("blocked_terms_found"), list) and payload["blocked_terms_found"]:
-        return None, "blocked_terms", list(payload["blocked_terms_found"])
+        return last_rewritten_text, "blocked_terms", list(payload["blocked_terms_found"])
     if isinstance(payload.get("disallowed_terms"), list) and payload["disallowed_terms"]:
-        return None, "disallowed_terms", list(payload["disallowed_terms"])
+        return last_rewritten_text, "disallowed_terms", list(payload["disallowed_terms"])
     if isinstance(payload.get("unsupported_ats_terms"), list) and payload["unsupported_ats_terms"]:
-        return None, "unsupported_ats_terms", list(payload["unsupported_ats_terms"])
+        return last_rewritten_text, "unsupported_ats_terms", list(payload["unsupported_ats_terms"])
     if isinstance(payload.get("missing_required_terms"), list) and payload["missing_required_terms"]:
-        return None, "missing_required_summary_terms", list(payload["missing_required_terms"])
+        return last_rewritten_text, "missing_required_summary_terms", list(payload["missing_required_terms"])
     return None, None, None
 
 
@@ -1384,12 +1395,14 @@ def _find_unsupported_summary_terms(
 
     original_guard_terms = set(_extract_tool_like_terms(original_text))
     rewritten_guard_terms = set(_extract_tool_like_terms(rewritten_text))
-    introduced_guard_terms = [
-        term
-        for term in sorted(rewritten_guard_terms - original_guard_terms)
-        if term not in summary_policy.allowed_new_terms
-        and not _is_covered_by_allowed_summary_phrase(term, rewritten_text, summary_policy.allowed_new_terms)
-    ]
+    introduced_guard_terms: List[str] = []
+    for term in sorted(rewritten_guard_terms - original_guard_terms):
+        canonical = canonicalize_term(term) or term
+        if canonical in summary_policy.allowed_new_terms:
+            continue
+        if _is_covered_by_allowed_summary_phrase(canonical, rewritten_text, summary_policy.allowed_new_terms):
+            continue
+        _append_unique(introduced_guard_terms, canonical)
 
     unsupported: List[str] = []
     for term in unsupported_terms + introduced_guard_terms:
@@ -1893,6 +1906,7 @@ def _analyze_skill_segment(
         "is_under_supported": bool(term_policy and term_policy.is_under_supported),
         "is_unsupported_ats": is_unsupported_ats,
         "is_target_term": is_target_term,
+        "is_canonicalized_variant": normalize_text(display_text) != normalize_text(stripped),
         "original_index": original_index,
     }
 
@@ -2024,6 +2038,9 @@ def _surface_priority_skill_order(policy: SkillsATSOptimizationPolicy) -> Tuple[
             term_policy = policy.term_policies.get(term)
             if term_policy is None:
                 continue
+            coverage_entry = policy.coverage.coverage_by_term.get(term)
+            if coverage_entry is not None and coverage_entry.is_title_term:
+                continue
             if term_policy.is_blocked or term_policy.is_under_supported or not term_policy.is_allowed_surface:
                 continue
             _append_unique(ordered, term)
@@ -2040,16 +2057,20 @@ def _surface_priority_skill_in_line(
     budget = state.get("budget")
     if not isinstance(infos, list) or not isinstance(separator, str) or not isinstance(budget, int):
         return False
+    if state.get("surface_locked"):
+        return False
     if any(info.get("primary_term") == term_policy.term for info in infos if isinstance(info, dict)):
         return False
 
     current_segments = [info["text"] for info in infos if isinstance(info, dict)]
-    candidate_infos = _optimize_skill_line_segments(current_segments + [term_policy.display], policy)
-    candidate_segments = [info["text"] for info in candidate_infos]
-    candidate_text = separator.join(candidate_segments)
-    if len(candidate_text) <= budget:
-        _apply_skill_line_candidate(state, candidate_infos, candidate_text)
-        return True
+    if len(current_segments) < 3:
+        candidate_infos = _optimize_skill_line_segments(current_segments + [term_policy.display], policy)
+        candidate_segments = [info["text"] for info in candidate_infos]
+        candidate_text = separator.join(candidate_segments)
+        if len(candidate_text) <= budget:
+            _apply_skill_line_candidate(state, candidate_infos, candidate_text)
+            state["surface_locked"] = True
+            return True
 
     candidate_entry = _build_skill_segment_infos([term_policy.display], policy)[0]
     for index in _replacement_indexes_for_skill_line(infos):
@@ -2071,6 +2092,7 @@ def _surface_priority_skill_in_line(
         }:
             continue
         _apply_skill_line_candidate(state, replacement_infos, replacement_text)
+        state["surface_locked"] = True
         return True
     return False
 
@@ -2092,6 +2114,8 @@ def _replacement_indexes_for_skill_line(infos: Sequence[Dict[str, Any]]) -> List
             continue
         if info.get("is_blocked") or info.get("is_unsupported_ats"):
             priority = 0
+        elif info.get("is_canonicalized_variant") and info.get("is_target_term"):
+            priority = 5
         elif info.get("is_under_supported"):
             priority = 1
         elif info.get("is_soft"):
@@ -2524,6 +2548,16 @@ def _call_bullet_rewrite(
 
         blocked_terms = _find_blocked_terms_in_text(rewritten_text, ats_policy.blocked_terms)
         if blocked_terms:
+            repaired_text = _salvage_bullet_candidate(
+                original_text=original_text,
+                rewritten_text=rewritten_text,
+                blocked_terms=blocked_terms,
+                ats_policy=ats_policy,
+                allowed_vocab=allowed_vocab,
+                requested_target_keywords=requested_target_keywords,
+            )
+            if repaired_text is not None:
+                return repaired_text, None, None
             payload["blocked_terms_found"] = blocked_terms
             payload["retry_instruction"] = "Remove the blocked terms. Preserve only supported evidence-backed ATS terms."
             continue
@@ -2701,6 +2735,13 @@ def _build_bullet_ats_policy(
     evidence_term_set = frozenset(_normalize_ordered_terms(evidence_terms))
     original_term_set = _extract_canonical_terms(original_text)
     blocked_term_set = frozenset(tailoring_ats_context.blocked_bullet_terms)
+    salvageable_blocked_terms = frozenset(
+        term
+        for term in blocked_term_set
+        if term in tailoring_ats_context.title_supported_terms
+        or term in tailoring_ats_context.summary_alignment_terms
+        or term in tailoring_ats_context.title_missing_terms
+    )
 
     safe_target_terms: List[str] = []
     safe_target_set: Set[str] = set()
@@ -2760,6 +2801,7 @@ def _build_bullet_ats_policy(
         required_terms=tuple(required_terms),
         allowed_new_terms=frozenset(surface_terms),
         blocked_term_set=blocked_term_set,
+        salvageable_blocked_terms=salvageable_blocked_terms,
         plan_term_set=tailoring_ats_context.plan_terms,
         is_recent=is_recent,
         is_primary_evidence=is_primary_evidence,
@@ -2862,11 +2904,12 @@ def _find_unsupported_ats_terms(
 
     original_guard_terms = set(_extract_tool_like_terms(original_text))
     rewritten_guard_terms = set(_extract_tool_like_terms(rewritten_text))
-    introduced_guard_terms = [
-        term
-        for term in sorted(rewritten_guard_terms - original_guard_terms)
-        if term not in policy.allowed_new_terms
-    ]
+    introduced_guard_terms: List[str] = []
+    for term in sorted(rewritten_guard_terms - original_guard_terms):
+        canonical = canonicalize_term(term) or term
+        if canonical in policy.allowed_new_terms:
+            continue
+        _append_unique(introduced_guard_terms, canonical)
 
     unsupported: List[str] = []
     for term in introduced_plan_terms + introduced_guard_terms:
@@ -2881,6 +2924,87 @@ def _find_missing_required_terms(text: str, required_terms: Sequence[str]) -> Li
     if present:
         return []
     return list(required_terms)
+
+
+def _salvage_bullet_candidate(
+    *,
+    original_text: str,
+    rewritten_text: str,
+    blocked_terms: Sequence[str],
+    ats_policy: BulletATSRewritePolicy,
+    allowed_vocab: Dict[str, Any],
+    requested_target_keywords: Sequence[str],
+) -> Optional[str]:
+    sanitized = _remove_blocked_terms_from_text(rewritten_text, blocked_terms)
+    if not sanitized or _is_effectively_same(rewritten_text, sanitized):
+        return None
+    if _is_effectively_same(original_text, sanitized):
+        return None
+    normalized_blocked_terms = _normalize_ordered_terms(blocked_terms)
+    if not ats_policy.salvageable_blocked_terms or any(
+        not _is_salvageable_blocked_term(term, ats_policy.salvageable_blocked_terms)
+        for term in normalized_blocked_terms
+    ):
+        return None
+    if _find_blocked_terms_in_text(sanitized, ats_policy.blocked_terms):
+        return None
+    if _find_disallowed_terms(sanitized, allowed_vocab, requested_target_keywords):
+        return None
+    if _find_unsupported_ats_terms(original_text, sanitized, ats_policy):
+        return None
+    if _find_missing_required_terms(sanitized, ats_policy.required_terms):
+        return None
+    return sanitized
+
+
+def _remove_blocked_terms_from_text(text: str, blocked_terms: Sequence[str]) -> str:
+    sanitized = text
+    removable_terms = _reduce_blocked_terms_for_removal(blocked_terms)
+    for term in sorted(removable_terms, key=len, reverse=True):
+        if not term:
+            continue
+        pattern = re.compile(rf"(?i)\b{re.escape(term).replace(r'\\ ', r'\\s+')}\b")
+        sanitized = pattern.sub("", sanitized)
+    sanitized = re.sub(r"\s+([,.;:])", r"\1", sanitized)
+    sanitized = re.sub(r"([(\[{])\s+", r"\1", sanitized)
+    sanitized = re.sub(r"\s+([)\]}])", r"\1", sanitized)
+    sanitized = re.sub(r"\s{2,}", " ", sanitized)
+    sanitized = re.sub(r"\b(with|for|in|on|to|and|or)\s*([,.;:])", r"\2", sanitized, flags=re.IGNORECASE)
+    sanitized = re.sub(r"[ ,;:]+$", "", sanitized)
+    return sanitized.strip()
+
+
+def _is_salvageable_blocked_term(term: str, salvageable_terms: FrozenSet[str]) -> bool:
+    if term in salvageable_terms:
+        return True
+    term_tokens = set(term.split())
+    for salvageable in salvageable_terms:
+        if not salvageable:
+            continue
+        if " " in salvageable and salvageable in term:
+            return True
+        if salvageable in term_tokens:
+            return True
+    return False
+
+
+def _reduce_blocked_terms_for_removal(blocked_terms: Sequence[str]) -> List[str]:
+    reduced: List[str] = []
+    for term in sorted(_normalize_ordered_terms(blocked_terms), key=len):
+        if any(_blocked_term_contains_term(term, existing) for existing in reduced):
+            continue
+        reduced.append(term)
+    return reduced
+
+
+def _blocked_term_contains_term(container: str, term: str) -> bool:
+    if not container or not term:
+        return False
+    if container == term:
+        return True
+    if " " in term and term in container:
+        return True
+    return term in set(container.split())
 
 
 def _find_disallowed_terms(
@@ -3023,6 +3147,48 @@ def _fallback_reason(
     return "unknown"
 
 
+def _fallback_summary_rewrite_with_context(
+    *,
+    original_text: str,
+    candidate_text: Optional[str],
+    reject_reason: Optional[str],
+    rejected_terms: Sequence[str],
+    summary_policy: Optional[SummaryATSRewritePolicy],
+    allowed_vocab: Dict[str, Any],
+    target_keywords: Sequence[str],
+) -> Optional[str]:
+    if candidate_text and reject_reason in {"blocked_terms", "unsafe_title_alignment"}:
+        sanitized = _remove_blocked_terms_from_text(candidate_text, rejected_terms)
+        sanitized = _normalize_summary_candidate_text(sanitized)
+        if sanitized and summary_policy is not None:
+            composed = _compose_summary_from_policy(
+                original_text=original_text,
+                candidate_text=sanitized,
+                summary_policy=summary_policy,
+            )
+            if composed is not None:
+                reject_reason_after, _ = _validate_summary_candidate(
+                    original_text,
+                    composed,
+                    summary_policy,
+                    allowed_vocab,
+                    target_keywords,
+                )
+                if reject_reason_after is None and not _is_effectively_same(original_text, composed):
+                    return composed
+        if sanitized and not _is_effectively_same(original_text, sanitized):
+            reject_reason_after, _ = _validate_summary_candidate(
+                original_text,
+                sanitized,
+                summary_policy,
+                allowed_vocab,
+                target_keywords,
+            )
+            if reject_reason_after is None:
+                return sanitized
+    return _fallback_summary_rewrite(original_text)
+
+
 def _fallback_summary_rewrite(original_text: str) -> Optional[str]:
     stripped = original_text.strip()
     if not stripped:
@@ -3128,6 +3294,61 @@ def _rotate_summary_tokens(text: str) -> Optional[str]:
     if suffix:
         candidate = candidate.rstrip() + suffix
     return candidate
+
+
+def _normalize_summary_candidate_text(text: str) -> Optional[str]:
+    stripped = text.strip()
+    if not stripped:
+        return None
+    if stripped[-1] not in ".!?":
+        stripped = f"{stripped}."
+    if stripped[0].isalpha():
+        stripped = stripped[0].upper() + stripped[1:]
+    return stripped
+
+
+def _compose_summary_from_policy(
+    *,
+    original_text: str,
+    candidate_text: str,
+    summary_policy: SummaryATSRewritePolicy,
+) -> Optional[str]:
+    if not summary_policy.title_alignment_safe or not summary_policy.safe_title_terms:
+        return None
+    title_phrase = next((term for term in summary_policy.safe_title_terms if " " in term), None)
+    if title_phrase is None:
+        title_phrase = summary_policy.safe_title_terms[0]
+
+    focus_terms = [
+        term
+        for term in summary_policy.requested_target_keywords
+        if term not in summary_policy.safe_title_terms
+    ]
+    if not focus_terms:
+        return None
+
+    normalized_candidate = normalize_text(candidate_text)
+    ordered_focus = sorted(
+        focus_terms,
+        key=lambda term: (
+            normalized_candidate.find(normalize_text(term))
+            if normalize_text(term) in normalized_candidate
+            else 10_000 + focus_terms.index(term)
+        ),
+    )
+    ordered_focus = ordered_focus[:2]
+    display_focus = [_canonical_skill_display(term) for term in ordered_focus]
+    title_display = _canonical_skill_display(title_phrase)
+    verb = "building" if "build" in normalize_text(candidate_text) or "build" in normalize_text(original_text) else "delivering"
+    tail = "services" if "service" in normalize_text(candidate_text) or "service" in normalize_text(original_text) else ""
+
+    if len(display_focus) == 1:
+        summary = f"{title_display} {verb} {display_focus[0]}"
+    else:
+        summary = f"{title_display} {verb} {display_focus[0]} and {display_focus[1]}"
+    if tail:
+        summary = f"{summary} {tail}"
+    return _normalize_summary_candidate_text(summary)
 
 
 def _append_unique(items: List[str], value: str) -> None:

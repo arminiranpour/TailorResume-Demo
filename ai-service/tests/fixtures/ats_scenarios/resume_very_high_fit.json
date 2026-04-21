@@ -1,0 +1,106 @@
+{
+  "meta": {
+    "total_pages": 2,
+    "structure_hash": "ats-scenario-very-high-fit"
+  },
+  "summary": {
+    "id": "summary",
+    "text": "Senior platform engineer delivering Python backend services, FastAPI REST APIs, PostgreSQL data models, and React dashboards on AWS for internal operations platforms."
+  },
+  "skills": {
+    "id": "skills",
+    "lines": [
+      {
+        "line_id": "skills_1",
+        "text": "Python, FastAPI, PostgreSQL, AWS, CI/CD"
+      },
+      {
+        "line_id": "skills_2",
+        "text": "ReactJS, TypeScript, Kubernetes, Datadog"
+      },
+      {
+        "line_id": "skills_3",
+        "text": "Kafka, GraphQL, Terraform"
+      }
+    ]
+  },
+  "experience": [
+    {
+      "exp_id": "exp_1",
+      "company": "LedgerLoop",
+      "title": "Senior Platform Engineer",
+      "start_date": "2022-03",
+      "end_date": "Present",
+      "bullets": [
+        {
+          "bullet_id": "exp_1_b1",
+          "bullet_index": 0,
+          "text": "Built Python backend services and FastAPI REST APIs for internal case management workflows, cutting manual review time by 42%.",
+          "char_count": 126
+        },
+        {
+          "bullet_id": "exp_1_b2",
+          "bullet_index": 1,
+          "text": "Designed PostgreSQL data models and audit tables for resume matching pipelines processing more than 3 million records each month.",
+          "char_count": 129
+        },
+        {
+          "bullet_id": "exp_1_b3",
+          "bullet_index": 2,
+          "text": "Shipped ReactJS and TypeScript dashboards used by QA analysts to inspect matching output, exceptions, and approval queues.",
+          "char_count": 122
+        },
+        {
+          "bullet_id": "exp_1_b4",
+          "bullet_index": 3,
+          "text": "Owned AWS deployments, CI/CD pipelines, Kubernetes rollouts, and Datadog monitoring across four production services.",
+          "char_count": 116
+        }
+      ]
+    },
+    {
+      "exp_id": "exp_2",
+      "company": "Cobalt Metrics",
+      "title": "Software Engineer",
+      "start_date": "2018-06",
+      "end_date": "2022-02",
+      "bullets": [
+        {
+          "bullet_id": "exp_2_b1",
+          "bullet_index": 0,
+          "text": "Implemented Kafka event streaming for ingestion jobs and GraphQL integrations for internal admin tooling.",
+          "char_count": 105
+        },
+        {
+          "bullet_id": "exp_2_b2",
+          "bullet_index": 1,
+          "text": "Built Python services and Postgres reporting jobs for analytics operations.",
+          "char_count": 75
+        }
+      ]
+    }
+  ],
+  "education": [
+    {
+      "edu_id": "edu_1",
+      "school": "University of Waterloo",
+      "degree": "BASc, Software Engineering",
+      "start_date": "2013-09",
+      "end_date": "2018-04"
+    }
+  ],
+  "projects": [
+    {
+      "project_id": "proj_1",
+      "name": "Resume Audit Console",
+      "bullets": [
+        {
+          "bullet_id": "proj_1_b1",
+          "bullet_index": 0,
+          "text": "Built a React and TypeScript dashboard for replaying ATS scoring and rewrite traces.",
+          "char_count": 84
+        }
+      ]
+    }
+  ]
+}

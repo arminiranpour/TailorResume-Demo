@@ -1,0 +1,100 @@
+{
+  "meta": {
+    "total_pages": 2,
+    "structure_hash": "ats-scenario-borderline-fit"
+  },
+  "summary": {
+    "id": "summary",
+    "text": "Lead application engineer with backend, data, and internal tooling experience across finance systems."
+  },
+  "skills": {
+    "id": "skills",
+    "lines": [
+      {
+        "line_id": "skills_1",
+        "text": "Python, Flask, Postgres, GraphQL"
+      },
+      {
+        "line_id": "skills_2",
+        "text": "Datadog, Docker, JavaScript"
+      },
+      {
+        "line_id": "skills_3",
+        "text": "ETL, reporting, workflow automation"
+      }
+    ]
+  },
+  "experience": [
+    {
+      "exp_id": "exp_1",
+      "company": "Summit Funds",
+      "title": "Lead Application Engineer",
+      "start_date": "2022-07",
+      "end_date": "Present",
+      "bullets": [
+        {
+          "bullet_id": "exp_1_b1",
+          "bullet_index": 0,
+          "text": "Led delivery of internal workflow automation and reporting tools for fund operations teams.",
+          "char_count": 91
+        },
+        {
+          "bullet_id": "exp_1_b2",
+          "bullet_index": 1,
+          "text": "Coordinated vendor upgrades, release signoffs, and monitoring reviews for legacy portfolio systems.",
+          "char_count": 99
+        }
+      ]
+    },
+    {
+      "exp_id": "exp_2",
+      "company": "Harbor Analytics",
+      "title": "Software Engineer",
+      "start_date": "2018-02",
+      "end_date": "2022-06",
+      "bullets": [
+        {
+          "bullet_id": "exp_2_b1",
+          "bullet_index": 0,
+          "text": "Built Python backend services for billing workflows and partner reporting.",
+          "char_count": 74
+        },
+        {
+          "bullet_id": "exp_2_b2",
+          "bullet_index": 1,
+          "text": "Created FastAPI REST services for onboarding tools and approval requests.",
+          "char_count": 73
+        },
+        {
+          "bullet_id": "exp_2_b3",
+          "bullet_index": 2,
+          "text": "Modeled PostgreSQL tables for billing data and ad hoc analyst requests.",
+          "char_count": 71
+        }
+      ]
+    }
+  ],
+  "education": [
+    {
+      "edu_id": "edu_1",
+      "school": "Carleton University",
+      "degree": "BSc, Computer Science",
+      "start_date": "2012-09",
+      "end_date": "2016-04"
+    }
+  ],
+  "projects": [
+    {
+      "project_id": "proj_1",
+      "name": "Operations Graph Explorer",
+      "bullets": [
+        {
+          "bullet_id": "proj_1_b1",
+          "bullet_index": 0,
+          "text": "Added GraphQL integrations and Datadog monitoring for an internal reporting prototype in 2020.",
+          "char_count": 94
+        }
+      ]
+    }
+  ]
+}

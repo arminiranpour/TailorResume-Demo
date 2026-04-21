@@ -1,0 +1,94 @@
+{
+  "meta": {
+    "total_pages": 2,
+    "structure_hash": "ats-scenario-false-positive-risk"
+  },
+  "summary": {
+    "id": "summary",
+    "text": "Solutions engineer supporting Python backend, FastAPI, AWS CI/CD, Postgres, ReactJS, and TypeScript initiatives for enterprise prospects."
+  },
+  "skills": {
+    "id": "skills",
+    "lines": [
+      {
+        "line_id": "skills_1",
+        "text": "Python, FastAPI, Postgres, AWS, CI/CD"
+      },
+      {
+        "line_id": "skills_2",
+        "text": "ReactJS, TypeScript, GraphQL, Kubernetes"
+      },
+      {
+        "line_id": "skills_3",
+        "text": "Solution design, demos, technical discovery"
+      }
+    ]
+  },
+  "experience": [
+    {
+      "exp_id": "exp_1",
+      "company": "OrbitIQ",
+      "title": "Solutions Engineer",
+      "start_date": "2022-02",
+      "end_date": "Present",
+      "bullets": [
+        {
+          "bullet_id": "exp_1_b1",
+          "bullet_index": 0,
+          "text": "Ran discovery calls, demos, and proof-of-concept timelines for enterprise recruiting software prospects.",
+          "char_count": 104
+        },
+        {
+          "bullet_id": "exp_1_b2",
+          "bullet_index": 1,
+          "text": "Authored onboarding guides, implementation checklists, and release notes for customer success teams.",
+          "char_count": 100
+        },
+        {
+          "bullet_id": "exp_1_b3",
+          "bullet_index": 2,
+          "text": "Triaged client issues with product and engineering teams and tracked follow-up requests in CRM workflows.",
+          "char_count": 105
+        }
+      ]
+    },
+    {
+      "exp_id": "exp_2",
+      "company": "Northfield Consulting",
+      "title": "Implementation Consultant",
+      "start_date": "2019-01",
+      "end_date": "2022-01",
+      "bullets": [
+        {
+          "bullet_id": "exp_2_b1",
+          "bullet_index": 0,
+          "text": "Configured customer environments, coordinated testing windows, and documented launch readiness tasks.",
+          "char_count": 101
+        }
+      ]
+    }
+  ],
+  "education": [
+    {
+      "edu_id": "edu_1",
+      "school": "Toronto Metropolitan University",
+      "degree": "BCom, Business Technology Management",
+      "start_date": "2014-09",
+      "end_date": "2018-04"
+    }
+  ],
+  "projects": [
+    {
+      "project_id": "proj_1",
+      "name": "Demo Portal Sandbox",
+      "bullets": [
+        {
+          "bullet_id": "proj_1_b1",
+          "bullet_index": 0,
+          "text": "Assembled a demo portal with ReactJS components and sample API responses for sales presentations.",
+          "char_count": 97
+        }
+      ]
+    }
+  ]
+}

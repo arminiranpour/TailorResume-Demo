@@ -295,6 +295,29 @@ class StableProvider(LLMProvider):
         )
 
 
+class IncidentalBlockedTermProvider(LLMProvider):
+    def generate(self, messages, *, timeout=None, **kwargs):
+        payload = _extract_payload(messages)
+        bullet_id = payload.get("bullet_id")
+        if bullet_id == "exp_recent_b1":
+            return json.dumps(
+                {
+                    "bullet_id": bullet_id,
+                    "rewritten_text": "Built fastapi api services with postgresql for platform services.",
+                    "keywords_used": ["fastapi", "postgresql"],
+                    "notes": "",
+                }
+            )
+        return json.dumps(
+            {
+                "bullet_id": bullet_id,
+                "rewritten_text": payload.get("original_text", ""),
+                "keywords_used": [],
+                "notes": "",
+            }
+        )
+
+
 def test_ats_rewrite_payload_prefers_evidence_terms_and_preserves_structure():
     provider = RecordingProvider()
     resume = sample_resume()
@@ -334,6 +357,35 @@ def test_blocked_terms_are_rejected_deterministically():
     assert tailored["experience"][0]["bullets"][0]["text"] == resume["experience"][0]["bullets"][0]["text"]
     assert audit_log["rejected_for_new_terms"] == ["exp_recent_b1"]
     assert audit_log["bullet_details"][0]["reject_reason"] == "blocked_terms"
+
+
+def test_incidental_blocked_surface_can_be_removed_when_required_evidence_survives():
+    resume = sample_resume()
+    plan = sample_plan()
+    plan["summary_alignment_terms"] = ["platform engineer", "platform", "engineer"]
+    plan["title_alignment_status"] = {
+        "is_title_supported": True,
+        "is_safe_for_summary_alignment": True,
+        "alignment_strength": "strong",
+        "supported_terms": ["platform engineer", "platform", "engineer"],
+        "missing_tokens": ["senior"],
+        "strongest_matching_resume_title": "Platform Engineer",
+    }
+    plan["blocked_terms"] = [
+        {"term": "platform", "priority_bucket": "high", "blocked_for": ["bullets"], "reason": "surface_not_safe"}
+    ]
+
+    tailored, audit_log = rewrite_resume_text_with_audit(
+        resume,
+        sample_job(),
+        sample_score(),
+        plan,
+        IncidentalBlockedTermProvider(),
+    )
+
+    assert tailored["experience"][0]["bullets"][0]["text"] == "Built fastapi api services with postgresql for services."
+    assert audit_log["rejected_for_new_terms"] == []
+    assert audit_log["bullet_details"][0]["changed"] is True
 
 
 def test_unsupported_terms_are_rejected_even_when_globally_allowed():

@@ -1,0 +1,74 @@
+{
+  "title": "Senior Platform Software Engineer",
+  "company": "Northstar Data Systems",
+  "location": "Toronto, ON, Canada",
+  "remote": true,
+  "seniority": "senior",
+  "must_have": [
+    {
+      "requirement_id": "req_python_backend",
+      "text": "Python backend services"
+    },
+    {
+      "requirement_id": "req_fastapi_rest",
+      "text": "FastAPI REST APIs"
+    },
+    {
+      "requirement_id": "req_postgresql_modeling",
+      "text": "PostgreSQL data modeling"
+    },
+    {
+      "requirement_id": "req_aws_cicd",
+      "text": "AWS CI CD"
+    },
+    {
+      "requirement_id": "req_react_typescript",
+      "text": "React TypeScript dashboards"
+    }
+  ],
+  "nice_to_have": [
+    {
+      "requirement_id": "req_kafka_events",
+      "text": "Kafka event streaming"
+    },
+    {
+      "requirement_id": "req_kubernetes_containers",
+      "text": "Kubernetes container orchestration"
+    },
+    {
+      "requirement_id": "req_graphql_integrations",
+      "text": "GraphQL integrations"
+    },
+    {
+      "requirement_id": "req_datadog_observability",
+      "text": "Datadog observability monitoring"
+    }
+  ],
+  "responsibilities": [
+    "Build Python backend services and FastAPI REST APIs for recruiter workflow automation.",
+    "Design PostgreSQL schemas and data models that support resume parsing, job matching, and audit trails.",
+    "Ship internal React and TypeScript dashboards for QA, operations, and analyst tooling.",
+    "Own AWS delivery pipelines, CI CD automation, and service reliability in production.",
+    "Partner with product, data, and platform teams on integrations, observability, and incremental platform improvements."
+  ],
+  "keywords": [
+    "Senior Platform Software Engineer",
+    "platform engineering",
+    "Python",
+    "FastAPI",
+    "REST APIs",
+    "Postgres",
+    "PostgreSQL",
+    "AWS",
+    "CI/CD",
+    "ReactJS",
+    "React",
+    "TypeScript",
+    "internal dashboards",
+    "Kubernetes",
+    "Kafka",
+    "GraphQL",
+    "Datadog"
+  ],
+  "source_url": null
+}

@@ -226,7 +226,7 @@ def _build_supported_priority_terms(context: _ATSPlannerContext) -> List[str]:
     terms: List[str] = []
     for term in context.job_weights.ordered_terms:
         coverage = context.coverage.coverage_by_term[term]
-        if not coverage.is_covered or coverage.is_under_supported:
+        if not coverage.is_covered or _is_under_supported_term(term, context):
             continue
         if not _has_any_safe_surface(term, context):
             continue
@@ -238,7 +238,7 @@ def _build_under_supported_terms(context: _ATSPlannerContext) -> List[Dict[str, 
     items: List[Dict[str, Any]] = []
     for term in context.job_weights.ordered_terms:
         coverage = context.coverage.coverage_by_term[term]
-        if not coverage.is_under_supported:
+        if not _is_under_supported_term(term, context):
             continue
         safe_for = _safe_surfaces(term, context)
         if not safe_for:
@@ -252,6 +252,19 @@ def _build_under_supported_terms(context: _ATSPlannerContext) -> List[Dict[str, 
             }
         )
     return items
+
+
+def _is_under_supported_term(term: str, context: _ATSPlannerContext) -> bool:
+    coverage = context.coverage.coverage_by_term[term]
+    link = context.evidence_links.links_by_term[term]
+    return bool(
+        coverage.is_under_supported
+        or link.is_under_supported
+        or (
+            term not in context.job_signals.title_terms
+            and term in context.evidence_links.skills_only_terms
+        )
+    )
 
 
 def _build_blocked_terms(context: _ATSPlannerContext) -> List[Dict[str, Any]]:
