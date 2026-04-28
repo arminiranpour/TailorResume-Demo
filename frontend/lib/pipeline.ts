@@ -26,6 +26,7 @@ const initialJobRun = (jobId: string): JobRunState => ({
   finalResume: null,
   renderResult: null,
   error: null,
+  note: null,
 });
 
 export function initializeJobRuns(jobs: JobEntry[]): JobRunState[] {
@@ -54,7 +55,7 @@ export async function processJobsSequentially(
 ): Promise<void> {
   for (const job of jobs) {
     callbacks.onActiveJob(job.id);
-    callbacks.onJobUpdate(job.id, { status: "parsing_job", error: null });
+    callbacks.onJobUpdate(job.id, { status: "parsing_job", error: null, note: null });
 
     try {
       const payload = resolveJobParsePayload(job);
@@ -68,6 +69,7 @@ export async function processJobsSequentially(
       if (!isProceedDecision(scoreResult)) {
         callbacks.onJobUpdate(job.id, {
           status: "skipped",
+          note: null,
         });
         continue;
       }
@@ -96,6 +98,16 @@ export async function processJobsSequentially(
       );
       callbacks.onJobUpdate(job.id, { finalResume: budgetResult.final_resume_json });
 
+      if (!docxBase64) {
+        callbacks.onJobUpdate(job.id, {
+          status: "complete",
+          renderResult: null,
+          error: null,
+          note: "Analysis complete. Upload a .docx resume to generate a downloadable tailored document.",
+        });
+        continue;
+      }
+
       callbacks.onJobUpdate(job.id, { status: "rendering_docx" });
       const renderResult = await apiClient.renderDocx({
         original_resume_json: resumeJson,
@@ -110,6 +122,7 @@ export async function processJobsSequentially(
         renderResult: mapped,
         status: mapped.objectUrl ? "complete" : "failed",
         error: mapped.objectUrl ? null : "DOCX render did not return a file.",
+        note: mapped.objectUrl ? null : null,
       });
       if (!mapped.objectUrl) {
         continue;
@@ -118,6 +131,7 @@ export async function processJobsSequentially(
       callbacks.onJobUpdate(job.id, {
         status: "failed",
         error: safeErrorMessage(error),
+        note: null,
       });
       continue;
     }

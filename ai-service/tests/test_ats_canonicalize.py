@@ -53,3 +53,12 @@ def test_canonicalize_terms_and_phrase_helpers_preserve_order():
         "learning engineer",
         "machine learning engineer",
     ]
+
+
+def test_canonicalize_term_handles_conservative_retail_phrase_mappings():
+    assert canonicalize_term("POS transactions") == "sales transactions"
+    assert canonicalize_term("payment processing") == "sales transactions"
+    assert canonicalize_term("product selection") == "product selection"
+    assert canonicalize_term("clean sales floor") == "showroom cleanliness"
+    assert canonicalize_term("product displays") == "merchandising displays"
+    assert canonicalize_term("weekend availability") == "weekend availability"

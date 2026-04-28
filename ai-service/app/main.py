@@ -13,7 +13,7 @@ from app.providers.base import LLMProvider
 from app.providers.factory import get_provider
 from app.pipelines.job_parser import JobParseError, extract_job_json
 from app.pipelines.resume_parser import ResumeParseError, extract_resume_json
-from app.pipelines.scoring import run_scoring
+from app.pipelines.scoring import run_ats_scoring
 from app.pipelines.tailoring_plan import TailorNotAllowed, TailoringPlanError, generate_tailoring_plan
 from app.pipelines.allowed_vocab import build_allowed_vocab
 from app.pipelines.bullet_rewrite import (
@@ -26,7 +26,6 @@ from app.docx_engine.editor import apply_tailored_text_to_docx
 from app.docx_engine.mapping import build_docx_mapping
 from app.docx_engine.types import DocxReplacementError
 from app.utils.debug_report import print_tailoring_debug_report
-from app.scoring import decide
 from app.schemas.schema_loader import load_schema
 
 app = FastAPI(title="TailorResume AI Service", version="0.1.0")
@@ -470,7 +469,7 @@ def score(payload: ScoreRequest) -> JSONResponse:
             content={"error": "invalid_request", "detail": "resume_json and job_json must be objects"},
         )
     try:
-        step2_result = run_scoring(payload.resume_json, payload.job_json)
+        result = run_ats_scoring(payload.resume_json, payload.job_json)
     except ValueError as exc:
         return JSONResponse(
             status_code=422,
@@ -481,17 +480,4 @@ def score(payload: ScoreRequest) -> JSONResponse:
             status_code=500,
             content={"error": "score_failed", "detail": str(exc)},
         )
-    step3_result = decide(step2_result, payload.job_json)
-    return JSONResponse(
-        status_code=200,
-        content={
-            "decision": step3_result["decision"],
-            "score_total": step2_result["score_total"],
-            "score_breakdown": step2_result["score_breakdown"],
-            "must_have_coverage_percent": step2_result["must_have"]["coverage_percent"],
-            "seniority_ok": step2_result["seniority"]["seniority_ok"],
-            "reasons": step3_result["reasons"],
-            "matched_requirements": step3_result["matched_requirements"],
-            "missing_requirements": step3_result["missing_requirements"],
-        },
-    )
+    return JSONResponse(status_code=200, content=result)

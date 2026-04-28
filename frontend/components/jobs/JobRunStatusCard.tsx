@@ -44,6 +44,7 @@ export function JobRunStatusCard({
   const score = run.scoreResult?.score_total;
   const decision = run.scoreResult?.decision;
   const docxReady = Boolean(run.renderResult?.objectUrl || run.renderResult?.blob || run.renderResult?.base64);
+  const reasonText = run.scoreResult?.reasons?.map((reason) => reason.message).join(" ");
 
   return (
     <div className="job-card">
@@ -58,11 +59,12 @@ export function JobRunStatusCard({
         <p className="helper">{isActive ? "Processing..." : ""}</p>
         <p className="helper">Decision: {decision ?? "—"}</p>
         <p className="helper">Score: {score ?? "—"}</p>
-        <p className="helper">DOCX: {docxReady ? "Ready" : "—"}</p>
+        <p className="helper">DOCX: {docxReady ? "Ready" : run.status === "complete" ? "Not generated" : "—"}</p>
       </div>
       {run.error ? <p className="error">{run.error}</p> : null}
-      {run.scoreResult?.reasons?.length ? (
-        <p className="helper">{run.scoreResult.reasons.join(" ")}</p>
+      {run.note ? <p className="helper">{run.note}</p> : null}
+      {reasonText ? (
+        <p className="helper">{reasonText}</p>
       ) : null}
     </div>
   );

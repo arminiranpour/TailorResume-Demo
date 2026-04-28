@@ -11,14 +11,14 @@ export type JobParsePayload = {
 };
 
 const JOB_TEXT_REQUIRED_MESSAGE =
-  "Job description text is required until URL extraction is implemented.";
+  "Paste the job description text. Job URL is optional metadata only right now.";
 
 export function validateJobInputs(jobs: JobEntry[]): ValidationResult {
-  const invalid = jobs.find((job) => !job.url.trim() && !job.fallbackText.trim());
+  const invalid = jobs.find((job) => !job.fallbackText.trim());
   if (invalid) {
     return {
       ok: false,
-      error: "Each job needs a URL or fallback description.",
+      error: "Each job needs pasted job description text. Job URL is optional.",
     };
   }
   return { ok: true };
@@ -30,8 +30,5 @@ export function resolveJobParsePayload(job: JobEntry): JobParsePayload {
   if (jobText) {
     return { jobText, url: url || undefined };
   }
-  if (url) {
-    throw new Error(JOB_TEXT_REQUIRED_MESSAGE);
-  }
-  throw new Error("Job description text is required.");
+  throw new Error(JOB_TEXT_REQUIRED_MESSAGE);
 }

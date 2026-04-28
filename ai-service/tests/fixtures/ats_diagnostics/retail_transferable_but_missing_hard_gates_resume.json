@@ -1,0 +1,56 @@
+{
+  "summary": {
+    "id": "summary",
+    "text": "Retail Sales Associate and Cashier with customer service experience supporting shoppers, explaining products, processing POS transactions, stocking inventory, receiving shipments, and maintaining a clean sales floor. Available weekdays and weekends."
+  },
+  "skills": {
+    "id": "skills",
+    "lines": [
+      {
+        "line_id": "skills_1",
+        "text": "Customer service, POS, payment processing, product selection"
+      },
+      {
+        "line_id": "skills_2",
+        "text": "Inventory, receiving, clean sales floor, communication, teamwork"
+      },
+      {
+        "line_id": "skills_3",
+        "text": "Weekday and weekend availability"
+      }
+    ]
+  },
+  "experience": [
+    {
+      "exp_id": "exp_1",
+      "company": "Neighborhood Market",
+      "title": "Retail Sales Associate | Cashier",
+      "start_date": "2023-01",
+      "end_date": "2025-04",
+      "bullets": [
+        {
+          "bullet_id": "exp_1_b1",
+          "bullet_index": 0,
+          "text": "Assisted customers with product selection and answered questions about store merchandise."
+        },
+        {
+          "bullet_id": "exp_1_b2",
+          "bullet_index": 1,
+          "text": "Processed POS transactions, payments, returns, and exchanges at checkout."
+        },
+        {
+          "bullet_id": "exp_1_b3",
+          "bullet_index": 2,
+          "text": "Stocked shelves, received shipments, and organized back-room inventory."
+        },
+        {
+          "bullet_id": "exp_1_b4",
+          "bullet_index": 3,
+          "text": "Maintained a clean sales floor and product displays while working with teammates during busy store hours."
+        }
+      ]
+    }
+  ],
+  "education": [],
+  "projects": []
+}

@@ -42,18 +42,19 @@ export function JobInputCard({
           onChange={(event) => onChange(job.id, { url: event.target.value })}
         />
         {urlError ? <p className="error">{urlError}</p> : null}
+        <p className="helper">Optional source URL for reference.</p>
       </div>
       <div className="field">
-        <label htmlFor={`job-fallback-${job.id}`}>Fallback description</label>
+        <label htmlFor={`job-fallback-${job.id}`}>Job description</label>
         <textarea
           id={`job-fallback-${job.id}`}
-          placeholder="Paste a brief job description if needed"
+          placeholder="Paste the job description text"
           value={job.fallbackText}
           onChange={(event) =>
             onChange(job.id, { fallbackText: event.target.value })
           }
         />
-        <p className="helper">Optional for now.</p>
+        <p className="helper">Required. URL-only intake is not enabled in the current frontend flow.</p>
       </div>
     </div>
   );

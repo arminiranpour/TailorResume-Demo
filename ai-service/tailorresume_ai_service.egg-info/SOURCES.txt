@@ -7,6 +7,7 @@ app/ats/__init__.py
 app/ats/canonicalize.py
 app/ats/coverage.py
 app/ats/evidence_linking.py
+app/ats/frequency.py
 app/ats/job_signals.py
 app/ats/phrases.py
 app/ats/recency.py
@@ -49,6 +50,13 @@ app/providers/local_provider.py
 app/schemas/paths.py
 app/schemas/schema_loader.py
 app/schemas/validator.py
+app/scoring/__init__.py
+app/scoring/decision.py
+app/scoring/indexer.py
+app/scoring/matcher.py
+app/scoring/normalize.py
+app/scoring/score.py
+app/scoring/seniority.py
 app/security/untrusted.py
 app/utils/__init__.py
 app/utils/debug_report.py
@@ -60,9 +68,13 @@ tailorresume_ai_service.egg-info/top_level.txt
 tests/test_ats_bullet_rewrite.py
 tests/test_ats_canonicalize.py
 tests/test_ats_coverage.py
+tests/test_ats_diagnostic_suite.py
 tests/test_ats_evidence_linking.py
+tests/test_ats_frequency.py
 tests/test_ats_recency.py
+tests/test_ats_regression_rules.py
 tests/test_ats_skills_optimization.py
+tests/test_ats_summary_rewrite.py
 tests/test_ats_tailoring_plan.py
 tests/test_ats_title_alignment.py
 tests/test_ats_weighting.py

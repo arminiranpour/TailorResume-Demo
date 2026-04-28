@@ -4,15 +4,29 @@ import type { TailoringPlan } from "./tailoring";
 
 export type ScoreDecision = "PROCEED" | "SKIP";
 
+export type ScoreReason = {
+  code: string;
+  message: string;
+  details?: unknown;
+};
+
+export type ScoreRequirement = {
+  requirement_id: string;
+  text?: string | null;
+  evidence?: unknown;
+  hard_gate?: boolean;
+};
+
 export type ScoreResult = {
   decision: ScoreDecision;
   score_total: number;
   score_breakdown: Record<string, number>;
   must_have_coverage_percent?: number;
   seniority_ok?: boolean;
-  reasons?: string[];
-  matched_requirements?: unknown;
-  missing_requirements?: unknown;
+  reasons?: ScoreReason[];
+  matched_requirements?: ScoreRequirement[];
+  missing_requirements?: ScoreRequirement[];
+  scoring_mode?: string;
 };
 
 export type TailoredResumeJSON = ResumeJSON;
@@ -47,4 +61,5 @@ export type JobRunState = {
   finalResume: TailoredResumeJSON | null;
   renderResult: RenderDocxResult | null;
   error: string | null;
+  note: string | null;
 };

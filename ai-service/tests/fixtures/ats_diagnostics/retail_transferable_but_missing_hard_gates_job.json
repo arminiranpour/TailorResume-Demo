@@ -1,0 +1,77 @@
+{
+  "title": "Retail Sales Specialist",
+  "company": "Northern Fitness",
+  "location": "Toronto, ON",
+  "remote": "In-person",
+  "summary": "Consultative retail sales role focused on helping customers choose fitness equipment and accessories.",
+  "must_have": [
+    {
+      "requirement_id": "must_1",
+      "text": "2 years consultative or solution-based retail sales experience",
+      "hard_gate": true
+    },
+    {
+      "requirement_id": "must_2",
+      "text": "Experience meeting commission or target-driven sales goals",
+      "hard_gate": true
+    },
+    {
+      "requirement_id": "must_3",
+      "text": "Ability to guide customers through product selection and recommend the right fitness products",
+      "hard_gate": false
+    },
+    {
+      "requirement_id": "must_4",
+      "text": "Comfort handling sales transactions, returns, exchanges, and basic retail operations",
+      "hard_gate": false
+    },
+    {
+      "requirement_id": "must_5",
+      "text": "Maintain showroom cleanliness, merchandising displays, and store presentation",
+      "hard_gate": false
+    },
+    {
+      "requirement_id": "must_6",
+      "text": "Weekend availability for in-person retail schedule",
+      "hard_gate": false
+    },
+    {
+      "requirement_id": "must_7",
+      "text": "Bachelor degree or equivalent",
+      "hard_gate": true
+    }
+  ],
+  "nice_to_have": [
+    {
+      "requirement_id": "nice_1",
+      "text": "Experience with Shopify, HubSpot, CRM systems, or Google Workspace"
+    },
+    {
+      "requirement_id": "nice_2",
+      "text": "Fitness equipment or fitness industry knowledge"
+    },
+    {
+      "requirement_id": "nice_3",
+      "text": "Handle customer email and phone inquiries and post-sale follow-up"
+    },
+    {
+      "requirement_id": "nice_4",
+      "text": "Coordinate promotions, events, and teamwork across departments"
+    }
+  ],
+  "responsibilities": [
+    "Help customers choose the right fitness products and accessories.",
+    "Handle showroom transactions, returns, exchanges, and store presentation.",
+    "Answer customer inquiries by phone and email and assist with post-sale follow-up."
+  ],
+  "keywords": [
+    "Retail Sales Specialist",
+    "Consultative sales",
+    "Fitness equipment",
+    "Shopify",
+    "HubSpot",
+    "CRM",
+    "Google Workspace",
+    "Weekend availability"
+  ]
+}

@@ -97,6 +97,16 @@ def test_skip_when_hard_gate_missing():
     assert result["reasons"][0]["code"] == "HARD_GATE_MISSING"
 
 
+def test_skip_when_explicit_hard_gate_flag_missing():
+    job = build_job(["Bachelor degree or equivalent"], [])
+    job["must_have"][0]["hard_gate"] = True
+    step2 = build_step2(90, 90, True, job, set(), set())
+    result = decide(step2, job)
+    assert result["decision"] == "SKIP"
+    assert result["reasons"][0]["code"] == "HARD_GATE_MISSING"
+    assert result["missing_requirements"][0]["hard_gate"] is True
+
+
 def test_determinism_repeated_decide_matches():
     job = build_job(["Python"], [])
     step2 = build_step2(80, 80, True, job, {"must_1"}, set())

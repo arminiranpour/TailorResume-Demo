@@ -99,26 +99,25 @@ export default function HomePage() {
       return [];
     }
 
-    return jobs
-      .map((job) => {
-        const run = jobRunsById.get(job.id);
-        if (!run) {
-          return null;
-        }
+    return jobs.reduce<JobResult[]>((results, job) => {
+      const run = jobRunsById.get(job.id);
+      if (!run) {
+        return results;
+      }
 
-        return {
-          id: job.id,
-          url: job.url,
-          title: run.parsedJob?.title ?? undefined,
-          company: run.parsedJob?.company ?? undefined,
-          score: run.scoreResult?.score_total ?? undefined,
-          coverage: run.scoreResult?.must_have_coverage_percent ?? undefined,
-          decision: run.scoreResult?.decision ?? undefined,
-          status: mapRunStatus(run.status),
-          docxUrl: run.renderResult?.objectUrl ?? undefined,
-        };
-      })
-      .filter((job): job is JobResult => Boolean(job));
+      results.push({
+        id: job.id,
+        url: job.url,
+        title: run.parsedJob?.title ?? undefined,
+        company: run.parsedJob?.company ?? undefined,
+        score: run.scoreResult?.score_total ?? undefined,
+        coverage: run.scoreResult?.must_have_coverage_percent ?? undefined,
+        decision: run.scoreResult?.decision ?? undefined,
+        status: mapRunStatus(run.status),
+        docxUrl: run.renderResult?.objectUrl ?? undefined,
+      });
+      return results;
+    }, []);
   }, [jobRuns.length, jobRunsById, jobs]);
 
   const handleAnalyze = async () => {
@@ -168,10 +167,7 @@ export default function HomePage() {
       const resumeInput = await readResumeInput(resumeFile);
       setResumeDocxBase64(resumeInput.docxBase64 ?? null);
 
-      const resumeJson = await apiClient.parseResume(
-        resumeInput.text,
-        resumeInput.docxBase64
-      );
+      const resumeJson = await apiClient.parseResume(resumeInput.text);
       setParsedResume(resumeJson);
 
       await processJobsSequentially(jobs, resumeJson, resumeInput.docxBase64, {

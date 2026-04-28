@@ -46,7 +46,7 @@ export function ResumeUpload({
         <p className="muted">
           {`Accepted formats: ${ACCEPTED_RESUME_EXTENSIONS.join(
             ", "
-          )}. Max size ${formatBytes(MAX_RESUME_FILE_BYTES)}.`}
+          )}. Max size ${formatBytes(MAX_RESUME_FILE_BYTES)}. Use .docx for downloadable output; .txt supports analysis only.`}
         </p>
       </div>
       <div className="field">

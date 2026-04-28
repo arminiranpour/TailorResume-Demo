@@ -56,12 +56,13 @@ def evaluate_hard_gates(job_json: Dict[str, Any], step2_result: Dict[str, Any]) 
             if req_id not in missing_ids:
                 continue
         pattern = _detect_hard_gate_pattern(requirement.get("text", ""))
-        if pattern:
+        explicit_hard_gate = requirement.get("hard_gate") is True
+        if explicit_hard_gate or pattern:
             hard_gate_missing.append(
                 {
                     "requirement_id": req_id,
                     "text": requirement.get("text"),
-                    "pattern": pattern,
+                    "pattern": pattern or "explicit_hard_gate",
                 }
             )
     return {

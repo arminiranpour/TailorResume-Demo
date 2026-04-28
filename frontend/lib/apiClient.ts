@@ -1,5 +1,5 @@
 import type { JobJSON, ResumeJSON, TailoringPlan } from "../types";
-import type { ScoreResult } from "../types/pipeline";
+import type { ScoreReason, ScoreResult } from "../types/pipeline";
 import { toErrorMessage } from "./errors";
 
 const baseUrl =
@@ -11,7 +11,7 @@ type ApiErrorPayload = {
   details?: unknown;
   raw_preview?: string;
   decision?: string;
-  reasons?: string[];
+  reasons?: ScoreReason[];
 };
 
 export class ApiError extends Error {
@@ -28,7 +28,6 @@ export class ApiError extends Error {
 
 type ParseResumeRequest = {
   resume_text: string;
-  resume_docx_base64?: string;
 };
 
 type ParseResumeResponse = {
@@ -109,12 +108,10 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
 }
 
 export async function parseResume(
-  resumeText: string,
-  resumeDocxBase64?: string
+  resumeText: string
 ): Promise<ResumeJSON> {
   const payload: ParseResumeRequest = {
     resume_text: resumeText,
-    resume_docx_base64: resumeDocxBase64,
   };
   const data = await postJson<ParseResumeResponse>("/parse-resume", payload);
   if (!data || typeof data.resume_json !== "object" || data.resume_json === null) {
