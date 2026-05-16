@@ -138,10 +138,11 @@ export async function scoreJob(
   resumeJson: ResumeJSON,
   jobJson: JobJSON
 ): Promise<ScoreResult> {
-  const data = await postJson<ScoreResponse>("/score", {
+  const data = await postJson<ScoreResponse>("/score/llm", {
     resume_json: resumeJson,
     job_json: jobJson,
   });
+  console.log("SCORING MODE:", data.scoring_mode);
   if (data.decision !== "PROCEED" && data.decision !== "SKIP") {
     throw new Error("Malformed score response.");
   }

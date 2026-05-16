@@ -10,6 +10,7 @@ _SCHEMA_MAP = {
     "bullet_rewrite": "bullet_rewrite.schema.json",
     "summary_rewrite": "summary_rewrite.schema.json",
     "compress_text": "compress_text.schema.json",
+    "llm_score_result": "llm_score_result.schema.json",
 }
 
 

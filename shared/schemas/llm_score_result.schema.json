@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LLM Score Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "score_total",
+    "decision",
+    "confidence",
+    "fit_summary",
+    "matched_requirements",
+    "missing_requirements",
+    "transferable_matches",
+    "risk_flags",
+    "reasons",
+    "score_breakdown"
+  ],
+  "properties": {
+    "score_total": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "decision": {
+      "type": "string",
+      "enum": ["PROCEED", "SKIP"]
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["high", "medium", "low"]
+    },
+    "fit_summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "matched_requirements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["requirement_id", "evidence_source_ids", "rationale"],
+        "properties": {
+          "requirement_id": { "type": "string", "minLength": 1 },
+          "evidence_source_ids": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "rationale": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "missing_requirements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["requirement_id", "rationale"],
+        "properties": {
+          "requirement_id": { "type": "string", "minLength": 1 },
+          "rationale": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "transferable_matches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["requirement_id", "evidence_source_ids", "rationale"],
+        "properties": {
+          "requirement_id": { "type": "string", "minLength": 1 },
+          "evidence_source_ids": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "rationale": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "risk_flags": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "reasons": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message", "severity"],
+        "properties": {
+          "code": { "type": "string", "minLength": 1 },
+          "message": { "type": "string", "minLength": 1 },
+          "severity": {
+            "type": "string",
+            "enum": ["info", "warning", "blocker"]
+          }
+        }
+      }
+    },
+    "score_breakdown": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "must_have",
+        "nice_to_have",
+        "transferable_fit",
+        "title_seniority",
+        "evidence_quality",
+        "risk_penalty"
+      ],
+      "properties": {
+        "must_have": { "type": "number" },
+        "nice_to_have": { "type": "number" },
+        "transferable_fit": { "type": "number" },
+        "title_seniority": { "type": "number" },
+        "evidence_quality": { "type": "number" },
+        "risk_penalty": { "type": "number" }
+      }
+    }
+  }
+}

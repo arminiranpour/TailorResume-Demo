@@ -12,6 +12,7 @@ from app.config import get_config
 from app.providers.base import LLMProvider
 from app.providers.factory import get_provider
 from app.pipelines.job_parser import JobParseError, extract_job_json
+from app.pipelines.llm_scoring import run_llm_adjudicated_scoring
 from app.pipelines.resume_parser import ResumeParseError, extract_resume_json
 from app.pipelines.scoring import run_ats_scoring
 from app.pipelines.tailoring_plan import TailorNotAllowed, TailoringPlanError, generate_tailoring_plan
@@ -470,6 +471,34 @@ def score(payload: ScoreRequest) -> JSONResponse:
         )
     try:
         result = run_ats_scoring(payload.resume_json, payload.job_json)
+    except ValueError as exc:
+        return JSONResponse(
+            status_code=422,
+            content={"error": "invalid_request", "detail": str(exc)},
+        )
+    except Exception as exc:
+        return JSONResponse(
+            status_code=500,
+            content={"error": "score_failed", "detail": str(exc)},
+        )
+    return JSONResponse(status_code=200, content=result)
+
+
+@app.post("/score/llm")
+def score_llm(payload: ScoreRequest) -> JSONResponse:
+    if not isinstance(payload.resume_json, dict) or not isinstance(payload.job_json, dict):
+        return JSONResponse(
+            status_code=422,
+            content={"error": "invalid_request", "detail": "resume_json and job_json must be objects"},
+        )
+
+    try:
+        provider = get_llm_provider()
+    except Exception:
+        provider = None
+
+    try:
+        result = run_llm_adjudicated_scoring(payload.resume_json, payload.job_json, provider)
     except ValueError as exc:
         return JSONResponse(
             status_code=422,

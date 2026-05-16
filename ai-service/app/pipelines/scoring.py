@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Mapping
+from typing import Any, Dict, List, Mapping, Sequence
 
 from app.ats import (
     build_coverage_model,
@@ -51,6 +51,11 @@ def score_fit(resume: Dict[str, Any], job: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def run_ats_scoring(resume_json: Dict[str, Any], job_json: Dict[str, Any]) -> Dict[str, Any]:
+    analysis = run_ats_scoring_analysis(resume_json, job_json)
+    return finalize_ats_scoring_result(analysis)
+
+
+def run_ats_scoring_analysis(resume_json: Dict[str, Any], job_json: Dict[str, Any]) -> Dict[str, Any]:
     _validate_inputs(resume_json, job_json)
 
     job_signals = extract_job_signals(job_json)
@@ -187,6 +192,24 @@ def run_ats_scoring(resume_json: Dict[str, Any], job_json: Dict[str, Any]) -> Di
         reasons.append({"code": "OK", "message": "Meets ATS thresholds", "details": None})
 
     return {
+        "resume_json": resume_json,
+        "job_json": job_json,
+        "job_signals": job_signals,
+        "resume_signals": resume_signals,
+        "job_weights": job_weights,
+        "coverage": coverage,
+        "evidence_links": evidence_links,
+        "title_alignment": title_alignment,
+        "recency": recency,
+        "must_matches": must_matches,
+        "nice_matches": nice_matches,
+        "hard_gate": hard_gate,
+        "hard_gate_ids": hard_gate_ids,
+        "resume_level": resume_level,
+        "job_seniority": job_seniority,
+        "seniority_alignment": seniority_alignment,
+        "recent_must_credit": recent_must_credit,
+        "recent_must_percent": recent_must_percent,
         "decision": decision,
         "score_total": score_total,
         "score_breakdown": {
@@ -203,8 +226,96 @@ def run_ats_scoring(resume_json: Dict[str, Any], job_json: Dict[str, Any]) -> Di
         "reasons": reasons,
         "matched_requirements": matched_requirements,
         "missing_requirements": missing_requirements,
-        "scoring_mode": "ats_upgraded",
     }
+
+
+def finalize_ats_scoring_result(
+    analysis: Mapping[str, Any],
+    *,
+    scoring_mode: str = "ats_upgraded",
+    decision: str | None = None,
+    score_total: float | None = None,
+    score_breakdown: Mapping[str, Any] | None = None,
+    reasons: Sequence[Mapping[str, Any]] | None = None,
+    matched_requirements: Sequence[Mapping[str, Any]] | None = None,
+    missing_requirements: Sequence[Mapping[str, Any]] | None = None,
+    extra_fields: Mapping[str, Any] | None = None,
+) -> Dict[str, Any]:
+    result = {
+        "decision": decision if decision is not None else analysis["decision"],
+        "score_total": score_total if score_total is not None else analysis["score_total"],
+        "score_breakdown": dict(score_breakdown if score_breakdown is not None else analysis["score_breakdown"]),
+        "must_have_coverage_percent": analysis["must_have_coverage_percent"],
+        "must_have_strict_match_percent": analysis["must_have_strict_match_percent"],
+        "nice_to_have_strict_match_percent": analysis["nice_to_have_strict_match_percent"],
+        "seniority_ok": analysis["seniority_ok"],
+        "reasons": list(reasons if reasons is not None else analysis["reasons"]),
+        "matched_requirements": list(
+            matched_requirements if matched_requirements is not None else analysis["matched_requirements"]
+        ),
+        "missing_requirements": list(
+            missing_requirements if missing_requirements is not None else analysis["missing_requirements"]
+        ),
+        "scoring_mode": scoring_mode,
+    }
+    if extra_fields:
+        result.update(dict(extra_fields))
+    return result
+
+
+def _requirement_status(match: Mapping[str, Any]) -> str:
+    if match.get("matched") is True:
+        return "matched"
+    if float(match.get("credit_ratio", 0.0)) > 0:
+        return "partial"
+    return "missing"
+
+
+def summarize_requirement_match(match: Mapping[str, Any]) -> Dict[str, Any]:
+    return {
+        "requirement_id": match["requirement_id"],
+        "text": match["text"],
+        "matched": bool(match.get("matched") is True),
+        "status": _requirement_status(match),
+        "overlap_score": float(match.get("overlap_score", 0.0)),
+        "supported_ratio": float(match.get("supported_ratio", 0.0)),
+        "covered_ratio": float(match.get("covered_ratio", 0.0)),
+        "credit_ratio": float(match.get("credit_ratio", 0.0)),
+        "supported_terms": list(match.get("supported_terms", [])),
+        "covered_terms": list(match.get("covered_terms", [])),
+        "matched_terms": list(match.get("matched_terms", [])),
+        "evidence": match.get("evidence"),
+        "has_recent_backing": bool(match.get("has_recent_backing") is True),
+    }
+
+
+def serialize_evidence_candidate(candidate: EvidenceCandidate | None) -> Dict[str, Any] | None:
+    if candidate is None:
+        return None
+    payload: Dict[str, Any] = {
+        "source_id": candidate.source_id,
+        "section": candidate.section,
+        "section_bucket": candidate.section_bucket,
+        "section_strength": candidate.section_strength,
+        "source_text": candidate.source_text,
+        "support_score": candidate.support_score,
+        "occurrence_count": candidate.occurrence_count,
+        "order": candidate.order,
+        "support_reasons": list(candidate.support_reasons),
+    }
+    if candidate.exp_id is not None:
+        payload["exp_id"] = candidate.exp_id
+    if candidate.project_id is not None:
+        payload["project_id"] = candidate.project_id
+    if candidate.edu_id is not None:
+        payload["edu_id"] = candidate.edu_id
+    if candidate.bullet_id is not None:
+        payload["bullet_id"] = candidate.bullet_id
+    if candidate.bullet_index is not None:
+        payload["bullet_index"] = candidate.bullet_index
+    if candidate.recency_rank is not None:
+        payload["recency_rank"] = candidate.recency_rank
+    return payload
 
 
 def _match_requirements(
